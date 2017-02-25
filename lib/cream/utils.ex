@@ -12,6 +12,6 @@ defmodule Cream.Utils do
   defp normalize_port(port) when is_integer(port), do: port
 
   def normalize_key(key), do: "#{key}"
-  def normalize_value(value), do: "#{value}"
+  def normalize_value(value), do: value
 
 end

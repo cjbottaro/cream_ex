@@ -15,6 +15,10 @@ defmodule Cream.Mixfile do
     ["lib", "test/support"]
   end
 
+  defp elixirc_paths(:dev) do
+    ["lib", "test/support/schemas"]
+  end
+
   defp elixirc_paths(_) do
     ["lib"]
   end
@@ -44,7 +48,8 @@ defmodule Cream.Mixfile do
       {:ecto, ">= 2.0.0"},
       {:postgrex, "~> 0.12"},
       {:memcachex, "~> 0.2.1"},
-      {:uuid, "~> 1.1"}
+      {:uuid, "~> 1.1"},
+      {:poison, "~> 2.0"}
     ]
   end
 end

@@ -93,4 +93,100 @@ defmodule CreamTest do
     assert log =~ "misses:1"
   end
 
+  test "preload belongs_to" do
+    comments = Repo.all(Comment)
+    comments_from_db = Repo.preload(comments, [:post])
+
+    Logger.configure(level: :debug)
+
+    log = capture_log fn ->
+      comments_from_cache = Cream.preload(comments, :post)
+      assert comments_from_db == comments_from_cache
+    end
+    assert log =~ "efficiency:0%"
+
+    log = capture_log fn ->
+      comments_from_cache = Cream.preload(comments, :post)
+      assert comments_from_db == comments_from_cache
+    end
+    assert log =~ "efficiency:100%"
+    refute log =~ "efficiency:0%"
+  end
+
+  test "preload has_many" do
+    posts = Repo.all(Post)
+    posts_from_db = Repo.preload(posts, [:comments]) |> sort
+
+    Logger.configure(level: :debug)
+
+    log = capture_log fn ->
+      posts_from_cache =  Cream.preload(posts, :comments) |> sort
+      assert posts_from_db == posts_from_cache
+    end
+    assert log =~ "efficiency:0%"
+
+    log = capture_log fn ->
+      posts_from_cache = Cream.preload(posts, :comments) |> sort
+      assert posts_from_db == posts_from_cache
+    end
+    assert log =~ "efficiency:100%"
+    refute log =~ "efficiency:0%"
+  end
+
+  test "preload has_one" do
+    users = Repo.all(User)
+    users_from_db = Repo.preload(users, [:email])
+
+    Logger.configure(level: :debug)
+
+    log = capture_log fn ->
+      users_from_cache = Cream.preload(users, :email)
+      assert users_from_db == users_from_cache
+    end
+    assert log =~ "efficiency:0%"
+
+    log = capture_log fn ->
+      users_from_cache = Cream.preload(users, :email)
+      assert users_from_db == users_from_cache
+    end
+    assert log =~ "efficiency:100%"
+    refute log =~ "efficiency:0%"
+  end
+
+  test "preload array" do
+    users = Repo.all(User)
+
+    users_from_d = Repo.preload(users, [:email, :posts])
+    users_from_c = Cream.preload(users, [:email, :posts])
+
+    assert sort(users_from_d) == sort(users_from_c)
+  end
+
+  test "preload hash" do
+    users = Repo.all(User)
+
+    users_from_d = Repo.preload(users, [posts: :comments])
+    users_from_c = Cream.preload(users, %{posts: :comments})
+
+    assert sort(users_from_d) == sort(users_from_c)
+  end
+
+  defp sort(records) when is_list(records) do
+    Enum.map(records, &sort(&1)) |> Enum.sort
+  end
+
+  defp sort(%{__struct__: _} = record) do
+    if :__schema__ in Keyword.keys(record.__struct__.module_info(:functions)) do
+      fields = record.__struct__.__schema__(:associations)
+      Enum.reduce fields, record, fn k, acc ->
+        v = Map.get(acc, k) |> sort
+        Map.put(acc, k, v)
+      end
+    else
+      record
+    end
+  end
+
+  defp sort(record), do: record
+
 end

@@ -11,7 +11,7 @@ defmodule Cream.Cluster do
     servers = Enum.map hosts, fn host ->
       {host, port} = normalize_host(host)
       name = {:via, Registry, {Cream.Registry, UUID.uuid4()}}
-      {:ok, _} = Cream.Supervisor.Connection.start_child([hostname: host, port: port], [name: name])
+      {:ok, _} = Cream.Supervisor.Connection.start_child([hostname: host, port: port, coder: Memcache.Coder.JSON], [name: name])
       %{ id: "#{host}:#{port}", name: name, weight: 1 }
     end
 

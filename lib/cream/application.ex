@@ -11,6 +11,9 @@ defmodule Cream.Application do
       end
     end
 
+    Cream.Preload.Initializer.run
+
     return
   end
+
 end

@@ -20,7 +20,7 @@ defmodule Cream.Command.Fetch do
 
   @spec fetch(any, keys :: [String.t], func :: ([String.t] -> %{String.t => String.t})) :: %{String.t => String.t}
   def fetch(cluster = %Cluster{}, keys, func) when is_list(keys) do
-    keys = Enum.map(keys, &normalize_key/1)
+    keys = Enum.map(keys, &normalize_key/1) |> Enum.uniq
     hits = get(cluster, keys)
     missing_keys = Enum.filter(keys, &(!Map.has_key?(hits, &1)))
 
@@ -31,12 +31,15 @@ defmodule Cream.Command.Fetch do
     Logger.debug "[cream] fetch - hits:#{hit_count} misses:#{miss_count} efficiency:#{percent}%"
 
     if !Enum.empty?(missing_keys) do
-      fetched = func.(missing_keys)
-      set(cluster, Map.to_list(fetched))
+      fetched = func.(missing_keys) |> to_map
+      set(cluster, fetched)
       Map.merge(hits, fetched)
     else
       hits
     end
   end
+
+  defp to_map(m) when is_map(m), do: m
+  defp to_map(m), do: Enum.into(m, %{})
 
 end
