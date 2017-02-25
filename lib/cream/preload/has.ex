@@ -40,7 +40,11 @@ defmodule Cream.Preload.Has do
     # Finally, add them into our original records.
     Enum.map records, fn {record, key} ->
       related_ids = related_ids_by_key[key]
-      related_records = Enum.map(related_ids, &related_records_by_id[&1])
+      related_records = if related_ids do
+        Enum.map(related_ids, &related_records_by_id[&1])
+      else
+        []
+      end
       if assoc.cardinality == :one do
         %{ record | assoc.field => List.first(related_records) }
       else
@@ -53,26 +57,25 @@ defmodule Cream.Preload.Has do
   defp fetch_ids(cluster, repo, assoc, keys) do
     Cream.fetch cluster, keys, fn missing ->
 
-      ids = Enum.map keys, fn key ->
+      ids_and_keys = Enum.reduce keys, %{}, fn key, acc ->
         [_, _, id | _] = String.split(key, ":")
-        String.to_integer(id)
+        Map.put(acc, String.to_integer(id), key)
       end
 
       query = from r in assoc.related,
         select: map(r, [:id, assoc.related_key]),
-        where: field(r, ^assoc.related_key) in ^ids
+        where: field(r, ^assoc.related_key) in ^Map.keys(ids_and_keys)
 
-      Enum.reduce(repo.all(query), %{}, fn record, acc ->
-        id_key = id_key_from_target(record, assoc)
-        if list = acc[id_key] do
-          Map.put(acc, id_key, [record.id | list])
-        else
-          Map.put(acc, id_key, [record.id])
-        end
-      end) |> Enum.map(fn {key, ids} ->
+      grouped_ids = Enum.reduce repo.all(query), %{}, fn record, acc ->
+        fkey = Map.get(record, assoc.related_key)
+        ids = Map.get(acc, fkey, [])
+        Map.put(acc, fkey, [record.id | ids])
+      end
+
+      Enum.map ids_and_keys, fn {id, key} ->
+        ids = grouped_ids[id] || []
         {key, Poison.encode!(ids)}
-      end)
-
+      end
     end
   end
 
