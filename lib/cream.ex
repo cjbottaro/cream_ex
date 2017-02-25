@@ -28,37 +28,36 @@ defmodule Cream do
     end
   end
 
-  def preload(cluster, records, assoc_names, options) when is_map(assoc_names) do
-    Enum.reduce assoc_names, records, fn {first, second}, acc ->
-      records = preload(cluster, acc, first, options)
+  def preload(cluster, records, assoc_names, options) when is_tuple(assoc_names) do
+    {assoc_name1, assoc_name2} = assoc_names
 
-      # Extract out the associated records we preloaded preloading.
-      next_records = Enum.map(records, &Map.get(&1, first))
-        |> List.flatten
+    records = preload(cluster, records, assoc_name1, options)
 
-      # Send them to be preloaded with the next assoc.
-      next_records = preload(cluster, next_records, second, options)
+    # Extract out the associated records we preloaded.
+    next_records = Enum.map(records, &Map.get(&1, assoc_name1))
+      |> List.flatten
 
-      # Index them by primary key.
-      next_records = Enum.reduce next_records, %{}, fn record, acc ->
-        Map.put(acc, record.id, record)
-      end
+    # Send them to be preloaded with the next assoc.
+    next_records = preload(cluster, next_records, assoc_name2, options)
 
-      # Now replace our preloaded associated records with the
-      # preloaded versions of themselves.
-
-      Enum.map records, fn record ->
-        related_records = case Map.get(record, first) do
-          records when is_list(records) ->
-            Enum.map(records, &next_records[&1.id]) # TODO don't hardcode id
-          record ->
-            next_records[record.id]
-        end
-
-        Map.put(record, first, related_records)
-      end
-
+    # Index them by primary key.
+    next_records = Enum.reduce next_records, %{}, fn record, acc ->
+      Map.put(acc, record.id, record)
     end
+
+    # Now replace our preloaded associated records with the
+    # preloaded versions of themselves.
+    Enum.map records, fn record ->
+      related_records = case Map.get(record, assoc_name1) do
+        records when is_list(records) ->
+          Enum.map(records, &next_records[&1.id]) # TODO don't hardcode id
+        record ->
+          next_records[record.id]
+      end
+
+      Map.put(record, assoc_name1, related_records)
+    end
+
   end
 
 end

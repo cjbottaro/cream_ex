@@ -165,8 +165,8 @@ defmodule CreamTest do
   test "preload hash" do
     users = Repo.all(User)
 
-    users_from_d = Repo.preload(users, [posts: :comments])
-    users_from_c = Cream.preload(users, %{posts: :comments})
+    users_from_d = Repo.preload(users, [posts: [comments: :post]])
+    users_from_c = Cream.preload(users, [posts: [comments: :post]])
 
     assert sort(users_from_d) == sort(users_from_c)
   end
