@@ -1,10 +1,11 @@
 require IEx
+require Logger
 defmodule Cream.Preload.Has do
-
-  import Ecto.Query, only: [from: 2]
+  use Cream.Preload
 
   def call(cluster, records, assoc, options \\ []) do
     repo = Repo # TODO
+    agent = options[:agent]
 
     # Make two lists in one pass. A list of keys and a list of {record, key}
     # tuples.
@@ -31,11 +32,15 @@ defmodule Cream.Preload.Has do
 
     # %{ "cream:Comment:123" => json } to %{ 123 => %Comment{...} }
     related_records_by_id = fetch_attributes(cluster, repo, assoc, related_keys)
-      |> Enum.reduce(%{}, fn {key, attributes}, acc ->
-        record = instantiate(assoc.related, attributes)
+
+    t1 = :os.system_time(:millisecond)
+    related_records_by_id = Enum.reduce(related_records_by_id, %{}, fn {key, attributes}, acc ->
         id = String.split(key, ":") |> List.last |> String.to_integer
+        record = instantiate(assoc.related, attributes, id, agent)
         Map.put(acc, id, record)
       end)
+    time = :os.system_time(:millisecond) - t1
+    Logger.debug "#{inspect __MODULE__ } :#{assoc.field} updating #{length(records)} records #{time}ms"
 
     # Finally, add them into our original records.
     Enum.map records, fn {record, key} ->
@@ -130,17 +135,6 @@ defmodule Cream.Preload.Has do
       value = Map.get(record, key)
       Map.put(acc, key, value)
     end) |> Poison.encode!
-  end
-
-  defp instantiate(schema, attributes) do
-    fields = schema.__schema__(:fields)
-    changeset = Ecto.Changeset.cast(
-      struct!(schema),
-      Poison.decode!(attributes),
-      fields
-    )
-    record = struct!(schema, changeset.changes)
-    put_in(record.__meta__.state, :loaded)
   end
 
 end

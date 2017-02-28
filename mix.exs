@@ -49,7 +49,8 @@ defmodule Cream.Mixfile do
       {:postgrex, "~> 0.12"},
       {:memcachex, "~> 0.2.1"},
       {:uuid, "~> 1.1"},
-      {:poison, "~> 2.0"}
+      {:poison, "~> 2.0"},
+      {:jiffy, "~> 0.14.0"}
     ]
   end
 end

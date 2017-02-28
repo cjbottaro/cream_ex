@@ -1,11 +1,14 @@
 require IEx
+require Logger
 defmodule Cream.Preload.BelongsTo do
-
-  import Ecto.Query, only: [from: 2]
+  use Cream.Preload
 
   def call(cluster, records, assoc, options \\ []) do
     repo = Repo # TODO
+    agent = Keyword.get(options, :agent)
+    source_cache = %{}
 
+    t1 = :os.system_time(:millisecond)
     # Make two lists in one pass. A list of keys and a list of {record, key}
     # tuples.
     {keys, records} = Enum.reduce records, {[], []}, fn record, {keys, records} ->
@@ -15,9 +18,10 @@ defmodule Cream.Preload.BelongsTo do
       {keys, records}
     end
 
-    # Maintain same order as input so that our output is in the same order.
-    records = Enum.reverse(records)
+    time = :os.system_time(:millisecond) - t1
+    Logger.debug "#{inspect __MODULE__ } :#{assoc.field} setup #{length(records)} records #{time}ms"
 
+    t1 = :os.system_time(:millisecond)
     attributes_by_key = Cream.fetch keys, fn missing ->
 
       ids = Enum.map missing, fn key ->
@@ -34,14 +38,34 @@ defmodule Cream.Preload.BelongsTo do
           Map.put(acc, key, json)
         end)
     end
+    time = :os.system_time(:millisecond) - t1
+    Logger.debug "#{inspect __MODULE__ } :#{assoc.field} fetching #{length(records)} records #{time}ms"
 
-    Enum.map records, fn {record, key} ->
-      if attributes = attributes_by_key[key] do
-        %{ record | assoc.field => instantiate(assoc.related, attributes) }
-      else
-        record
+
+    t1 = :os.system_time(:millisecond)
+    # This reduce will reverse the order of the records which was reversed
+    # already, thus we maintain original order!
+    result = Enum.reduce records, {[], %{}}, fn {record, key}, {records, cache} ->
+      cond do
+        cache_hit = cache[{record.__struct__, record.id}] ->
+          records = [cache_hit | records]
+          {records, cache}
+        attributes = attributes_by_key[key] ->
+          id = Map.get(record, assoc.owner_key)
+          related_record = instantiate(assoc.related, attributes, id, agent)
+          record = %{ record | assoc.field => related_record }
+          records = [record | records]
+          cache = Map.put cache, {record.__struct__, record.id}, record
+          {records, cache}
+        true ->
+          cache = Map.put cache, {record.__struct__, record.id}, record
+          records = [record | records]
+          {records, cache}
       end
     end
+    time = :os.system_time(:millisecond) - t1
+    Logger.debug "#{inspect __MODULE__ } :#{assoc.field} updating #{length(records)} records #{time}ms, hits: #{Map.size(result |> elem(1))}"
+    result |> elem(0)
 
   end
 
@@ -78,17 +102,6 @@ defmodule Cream.Preload.BelongsTo do
       value = Map.get(record, key)
       Map.put(acc, key, value)
     end) |> Poison.encode!
-  end
-
-  defp instantiate(schema, attributes) do
-    fields = schema.__schema__(:fields)
-    changeset = Ecto.Changeset.cast(
-      struct!(schema),
-      Poison.decode!(attributes),
-      fields
-    )
-    record = struct!(schema, changeset.changes)
-    put_in(record.__meta__.state, :loaded)
   end
 
 end

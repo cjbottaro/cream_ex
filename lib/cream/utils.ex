@@ -14,4 +14,10 @@ defmodule Cream.Utils do
   def normalize_key(key), do: "#{key}"
   def normalize_value(value), do: value
 
+  def stringify_keys(map) do
+    Enum.reduce map, %{}, fn {k, v}, acc ->
+      Map.put(acc, "#{k}", v)
+    end
+  end
+
 end

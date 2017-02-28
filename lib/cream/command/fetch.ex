@@ -20,23 +20,34 @@ defmodule Cream.Command.Fetch do
 
   @spec fetch(any, keys :: [String.t], func :: ([String.t] -> %{String.t => String.t})) :: %{String.t => String.t}
   def fetch(cluster = %Cluster{}, keys, func) when is_list(keys) do
+    t1 = :os.system_time(:millisecond)
+
     keys = Enum.map(keys, &normalize_key/1) |> Enum.uniq
     hits = get(cluster, keys)
-    missing_keys = Enum.filter(keys, &(!Map.has_key?(hits, &1)))
 
     total_count = length(keys)
     hit_count = Map.size(hits)
-    miss_count = length(missing_keys)
+    miss_count = total_count - hit_count
     percent = if hit_count == 0, do: 0, else: round(total_count / hit_count * 100)
-    Logger.debug "[cream] fetch - hits:#{hit_count} misses:#{miss_count} efficiency:#{percent}%"
 
-    if !Enum.empty?(missing_keys) do
+    missing_keys = if miss_count != 0 do
+      Enum.filter(keys, &(!Map.has_key?(hits, &1)))
+    else
+      []
+    end
+
+    results = if !Enum.empty?(missing_keys) do
       fetched = func.(missing_keys) |> to_map
       set(cluster, fetched)
       Map.merge(hits, fetched)
     else
       hits
     end
+
+    time = :os.system_time(:millisecond) - t1
+    Logger.debug "[cream] fetch - hits:#{hit_count} misses:#{miss_count} efficiency:#{percent}% time:#{time}ms"
+
+    results
   end
 
   defp to_map(m) when is_map(m), do: m

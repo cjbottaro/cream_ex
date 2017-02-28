@@ -1,47 +1,40 @@
 defmodule Cream.Preload do
 
-  def call(records, association_name) do
-
-    specs = Enum.map records, fn record ->
-      association = association(record, association_name)
-      assert_preloadable!(association)
-      two_phased? = two_phased?(association)
-      %{
-        record: record,
-        association: association,
-        two_phased?: two_phased?,
-        key: key_for(record, association, two_phased?)
-      }
-    end
-
-
-  end
-
-  defp association(record, name) do
-    record.__struct__.__schema__(:association, name)
-  end
-
-  defp assert_preloadable!(association) do
-    if two_phased?(association) do
-      preloadable = association.owner.module_info(:attributes)[:cream_associations] || []
-      if !Enum.member?(preloadable, association.field) do
-        raise ArgumentError, "#{inspect association.field} on #{inspect association.owner} has not been declared to work with Cream.preload"
-      end
+  defmacro __using__(_) do
+    quote do
+      import Ecto.Query, only: [from: 2]
+      import Cream.Preload, only: [instantiate: 4]
     end
   end
 
-  defp two_phased?(%Ecto.Association.BelongsTo{}), do: false
-  defp two_phased?(%Ecto.Association.Has{cardinality: :many}), do: true
-  defp two_phased?(%Ecto.Association.Has{cardinality: :one}), do: true
-
-  defp key_for(record, association, false) do
-    id = Map.get(record, association.owner_key) # Post.user_id
-    "cream:#{inspect association.related}:#{id}"
+  def instantiate(schema, attributes, id, agent) do
+    if record = Agent.get agent, &Map.get(&1, {schema,id}) do
+      record
+    else
+      source = schema.__schema__(:source)
+      prefix = schema.__schema__(:prefix)
+      attributes = Poison.decode!(attributes)
+      record = Ecto.Schema.__load__(schema, prefix, source, nil, attributes, &custom_loader(&1, &2))
+      Agent.update agent, &Map.put(&1, {schema,id}, record)
+      record
+    end
   end
 
-  defp key_for(record, association, true) do
-    id = Map.get(record, association.owner_key) # Post.id
-    "cream:#{inspect association.owner}:#{association.field}:ids"
+  defp custom_loader(_, nil), do: {:ok, nil}
+  defp custom_loader(:utc_datetime, value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> {:ok, datetime}
+      {:error, _reason} -> :error
+    end
+  end
+  defp custom_loader(:date, value) do
+    case Date.from_iso8601(value) do
+      {:ok, date} -> {:ok, date}
+      {:error, _reason} -> :error
+    end
+  end
+  defp custom_loader(type, value) do
+    Ecto.Type.adapter_load(Ecto.Adapters.Postgres, type, value)
   end
 
 end
