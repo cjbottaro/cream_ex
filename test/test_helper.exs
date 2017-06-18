@@ -1,3 +1,2 @@
 ExUnit.start()
-Repo.start_link
-Ecto.Adapters.SQL.Sandbox.mode(Repo, :manual)
+Test.Cluster.start_link

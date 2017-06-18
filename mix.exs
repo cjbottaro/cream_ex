@@ -8,15 +8,16 @@ defmodule Cream.Mixfile do
      build_embedded: Mix.env == :prod,
      start_permanent: Mix.env == :prod,
      elixirc_paths: elixirc_paths(Mix.env),
-     deps: deps()]
+     deps: deps(),
+     docs: [
+       main: "README",
+       extras: ["README.md": [title: "README"]]
+     ]
+   ]
   end
 
   defp elixirc_paths(:test) do
     ["lib", "test/support"]
-  end
-
-  defp elixirc_paths(:dev) do
-    ["lib", "test/support/schemas"]
   end
 
   defp elixirc_paths(_) do
@@ -45,12 +46,11 @@ defmodule Cream.Mixfile do
   # Type "mix help deps" for more examples and options
   defp deps do
     [
-      {:ecto, ">= 2.0.0"},
-      {:postgrex, "~> 0.12"},
       {:memcachex, "~> 0.2.1"},
       {:uuid, "~> 1.1"},
       {:poison, "~> 2.0"},
-      {:jiffy, "~> 0.14.0"}
+      {:poolboy, "~> 1.5"},
+      {:ex_doc, "~> 0.0", only: :dev},
     ]
   end
 end

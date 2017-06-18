@@ -1,85 +1,118 @@
 defmodule Cream.Cluster do
-  defstruct [:continuum, :size]
 
-  @points_per_server 160 # Dalli says this is the default in libmemcached.
+  def start_link(options \\ []) do
+    import Cream.Config, only: [
+      default_servers: 0,
+      default_pool: 0
+    ]
 
-  def new(options \\ []) do
-    import Cream.Utils, only: [normalize_host: 1]
+    options = options
+      |> Keyword.put_new(:servers, default_servers())
+      |> Keyword.put_new(:pool, default_pool())
 
-    hosts = Keyword.get(options, :hosts, ["localhost:11211"])
+    poolboy_config = [
+      worker_module: Cream.Supervisor.Cluster,
+      size: options[:pool],
+      name: options[:name],
+    ] |> Keyword.delete(:name, nil) # Remove :name if it's nil.
 
-    servers = Enum.map hosts, fn host ->
-      {host, port} = normalize_host(host)
-      name = {:via, Registry, {Cream.Registry, UUID.uuid4()}}
-      {:ok, _} = Cream.Supervisor.Connection.start_child([hostname: host, port: port, coder: Memcache.Coder.JSON], [name: name])
-      %{ id: "#{host}:#{port}", name: name, weight: 1 }
-    end
-
-    %__MODULE__{
-      size: length(servers),
-      continuum: build_continuum(servers)
-    }
+    :poolboy.start_link(poolboy_config, options)
   end
 
-  def server_for_key(cluster, key, attempt \\ 0)
-  def server_for_key(_, _, 20), do: {:error, "No server available"}
-  def server_for_key(cluster, key, attempt) do
+  defmacro __using__(config \\ nil) do
+    quote location: :keep, bind_quoted: [config: config] do
 
-    # Calculate the key's hash. If we're on attempt zero, then we don't modify it.
-    hkey = if attempt == 0 do
-      :erlang.crc32(key)
-    else
-      :erlang.crc32("#{key}:#{attempt}")
-    end
+      @name {:via, Registry, {Cream.Registry, __MODULE__}}
+      @config config
 
-    i = binary_search(cluster.continuum, hkey)
+      alias Cream.{Config, Cluster}
 
-    # Wrap i around if it's -1. Gross.
-    i = if i == -1, do: tuple_size(cluster.continuum)-1, else: i
+      def start_link do
+        config = case @config do
+          [] -> nil
+          config -> config
+        end
 
-    # Get the server.
-    {server_id, _} = elem(cluster.continuum, i)
-
-    if alive?(server_id) do
-      {:ok, server_id}
-    else
-      server_for_key(cluster.continuum, key, attempt + 1)
-    end
-
-  end
-
-  defp build_continuum(servers) do
-    total_servers = length(servers)
-    total_weight = Enum.reduce(servers, 0, fn(server, acc) -> acc + server.weight end) # TODO implement weights
-
-    continuum = Enum.reduce servers, [], fn server, acc ->
-      count = entry_count_for(server, total_servers, total_weight)
-      Enum.reduce 0..count-1, acc, fn i, acc ->
-        hash = :crypto.hash(:sha, "#{server.id}:#{i}") |> Base.encode16
-        {value, _} = hash |> String.slice(0, 8) |> Integer.parse(16)
-        [{server.name, value} | acc]
+        Config.get(config)
+          |> Keyword.put(:name, @name)
+          |> Cluster.start_link
       end
+
+      def set(key, value), do: Cluster.set(@name, key, value)
+      def set(pairs), do: Cluster.set(@name, pairs)
+      def get(keys), do: Cluster.get(@name, keys)
+      def fetch(keys, options \\ [], func), do: Cluster.fetch(@name, keys, options, func)
+      def flush(options \\ []), do: Cluster.flush(@name, options)
+
     end
-
-    Enum.sort_by(continuum, fn {_id, value} -> value end) |> List.to_tuple
   end
 
-  defp entry_count_for(server, total_servers, total_weight) do
-    trunc((total_servers * @points_per_server * server.weight) / total_weight)
+  def set(cluster, key_value, options \\ [])
+
+  def set(cluster, key_value, options) when is_tuple(key_value) do
+    set(cluster, [key_value], options) |> List.first
   end
 
-  defp binary_search(entries, value), do: binary_search(entries, value, 0, tuple_size(entries)-1)
-  defp binary_search(_entries, _value, lower, upper) when lower > upper, do: upper
-  defp binary_search(entries, value, lower, upper) do
-    i = ((lower + upper) / 2) |> trunc
-    { _, candidate_value } = elem(entries, i)
+  def set(cluster, keys_values, options) do
+    with_worker cluster, fn worker ->
+      GenServer.call(worker, {:set, keys_values})
+    end
+  end
+
+  def get(cluster, key) when not is_list(key) do
+    get(cluster, [key]) |> Map.values |> List.first
+  end
+
+  def get(cluster, keys, options \\ []) do
+    with_worker cluster, fn worker ->
+      GenServer.call(worker, {:get, keys})
+    end
+  end
+
+  def fetch(cluster, key, options \\ [], func)
+
+  def fetch(cluster, key, options, func) when not is_list(key) do
+    case get(cluster, [key], options) do
+      %{^key => value} ->
+        value
+      %{} ->
+        value = func.()
+        set(cluster, {key, value})
+        value
+    end
+  end
+
+  def fetch(cluster, keys, options, func) do
+    hits = get(cluster, keys, options)
+    missing_keys = Enum.reject(keys, &Map.has_key?(hits, &1))
+    missing_hits = generate_missing(missing_keys, options, func)
+    set(cluster, missing_hits, options)
+    Map.merge(hits, missing_hits)
+  end
+
+  def flush(cluster, options \\ []) do
+    with_worker cluster, fn worker ->
+      GenServer.call(worker, {:flush, options})
+    end
+  end
+
+  defp generate_missing([], _options, _func), do: %{}
+  defp generate_missing(keys, options, func) do
+    values = func.(keys)
     cond do
-      candidate_value == value -> i
-      candidate_value > value -> binary_search(entries, value, lower, i-1)
-      candidate_value < value -> binary_search(entries, value, i+1, upper)
+      is_map(values) -> values
+      is_list(values) -> Enum.zip(keys, values) |> Enum.into(%{})
     end
   end
 
-  defp alive?(_), do: true
+  defp with_worker(cluster, func) do
+    :poolboy.transaction cluster, fn supervisor ->
+      supervisor
+        |> Supervisor.which_children
+        |> Enum.find(& elem(&1, 0) == Cream.Cluster.Worker )
+        |> elem(1)
+        |> func.()
+    end
+  end
 
 end

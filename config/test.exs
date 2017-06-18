@@ -1,13 +1,10 @@
 use Mix.Config
 
-config :cream, Repo,
-  adapter: Ecto.Adapters.Postgres,
-  pool: Ecto.Adapters.SQL.Sandbox,
-  database: "cream_test"
-
-config :cream,
-  ecto_repos: [Repo],
-  hosts: ["localhost:11211"]
+config :cream, :clusters, [
+  three_node_cluster: [
+    servers: ["localhost:11201", "localhost:11202", "localhost:11203"]
+  ]
+]
 
 config :logger,
   level: :info

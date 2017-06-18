@@ -1,0 +1,18 @@
+version: "3"
+
+services:
+
+  memcached_01:
+    image: memcached:alpine
+    ports:
+      - 11201:11211
+
+  memcached_02:
+    image: memcached:alpine
+    ports:
+      - 11202:11211
+
+  memcached_03:
+    image: memcached:alpine
+    ports:
+      - 11203:11211
