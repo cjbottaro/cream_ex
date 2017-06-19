@@ -55,12 +55,24 @@ defmodule Cream.Cluster.Worker do
       Enum.reduce(responses, acc, fn response, acc ->
         case response do
           {:ok, key, value} -> Map.put(acc, key, value)
-          {:ok, "Key not found"} -> acc
+          {:error, "Key not found"} -> acc
         end
       end)
     end
 
     {:reply, reply, state}
+  end
+
+  def handle_call({:with_conn, keys, func}, _from, state) do
+    keys_by_conn_and_server = Enum.group_by keys, fn key ->
+      find_conn_and_server(state, key)
+    end
+
+    keys_by_conn_and_server
+      |> Enum.reduce(%{}, fn {{conn, server}, keys}, acc ->
+        Map.put(acc, server, func.(conn, keys))
+      end)
+      |> reply(state)
   end
 
   def handle_call({:flush, options}, _from, state) do
@@ -76,9 +88,22 @@ defmodule Cream.Cluster.Worker do
     {:reply, reply, state}
   end
 
-  defp find_conn(state, key) do
+  defp reply(reply, state) do
+    {:reply, reply, state }
+  end
+
+  defp group_keys_by_conn(keys, state) do
+    Enum.group_by(keys, &find_conn(state, &1))
+  end
+
+  defp find_conn_and_server(state, key) do
     {:ok, server} = Continuum.find(state.continuum, key)
-    state.connection_map[server]
+    conn = state.connection_map[server]
+    {conn, server}
+  end
+
+  defp find_conn(state, key) do
+    find_conn_and_server(state, key) |> elem(0)
   end
 
 end

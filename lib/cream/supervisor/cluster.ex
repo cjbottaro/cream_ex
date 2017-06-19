@@ -27,7 +27,7 @@ defmodule Cream.Supervisor.Cluster do
       {host, port} = parse_server(server)
 
       worker(
-        Memcache.Connection,
+        Memcache,
         [[hostname: host, port: port, coder: Memcache.Coder.JSON], [name: name]],
         id: {Memcache.Connection, server}
       )

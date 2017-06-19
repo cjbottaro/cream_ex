@@ -46,7 +46,7 @@ defmodule Cream.Mixfile do
   # Type "mix help deps" for more examples and options
   defp deps do
     [
-      {:memcachex, "~> 0.2.1"},
+      {:memcachex, ">= 0.4.0"},
       {:uuid, "~> 1.1"},
       {:poison, "~> 2.0"},
       {:poolboy, "~> 1.5"},

@@ -10,7 +10,7 @@ defmodule Cream.Continuum do
       |> Enum.reduce([], fn server, acc ->
         count = entry_count_for(server, 1, total_servers, total_weight)
         Enum.reduce 0..count-1, acc, fn i, acc ->
-          hash = :crypto.hash(:sha, server) |> Base.encode16
+          hash = :crypto.hash(:sha, "#{server}:#{i}") |> Base.encode16
           {value, _} = hash |> String.slice(0, 8) |> Integer.parse(16)
           [{server, value} | acc]
         end

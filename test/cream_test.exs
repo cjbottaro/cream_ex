@@ -77,4 +77,33 @@ defmodule CreamTest do
     assert Cluster.get("name") == "Callie"
   end
 
+  test "with conn" do
+
+    keys = ~w(foo bar baz zip kip pik)
+
+    results = keys
+      |> Cluster.with_conn(fn conn, keys ->
+        Enum.map(keys, &Memcache.get(conn, &1))
+      end)
+      |> Map.values
+      |> List.flatten
+
+    assert results == Enum.map(keys, fn _ -> {:error, "Key not found"} end)
+  end
+
+  test "Dalli compatibility" do
+    {_, 0} = System.cmd("bundle", ~w(exec ruby test/support/populate.rb))
+
+    expected_hits = (0..19)
+      |> Enum.map(&{"cream_ruby_test_key_#{&1}", &1})
+      |> Enum.into(%{})
+
+    hits = expected_hits
+      |> Map.keys
+      |> Cluster.get
+      |> Enum.reduce(%{}, fn {k, v}, acc -> Map.put(acc, k, String.to_integer(v)) end)
+
+    assert hits == expected_hits
+  end
+
 end
