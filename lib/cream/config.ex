@@ -12,7 +12,8 @@ defmodule Cream.Config do
     [
       servers: servers(name),
       pool: pool(name),
-    ]
+      memcachex: memcachex(name),
+    ] |> Keyword.delete(:memcachex, nil)
   end
 
   def servers(name \\ nil)
@@ -33,6 +34,14 @@ defmodule Cream.Config do
 
   def pool(name) do
     config_for(name) |> Keyword.get(:pool, @default_pool)
+  end
+
+  def memcachex(nil) do
+    Application.get_env(:cream, :memcachex)
+  end
+
+  def memcachex(name) do
+    config_for(name) |> Keyword.get(:memcachex)
   end
 
   defp config_for(name) do

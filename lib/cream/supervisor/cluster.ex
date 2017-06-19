@@ -22,14 +22,19 @@ defmodule Cream.Supervisor.Cluster do
       Map.put(acc, server, Cream.Registry.new_connection)
     end
 
-    # Each Memcache.Connection gets supervised.
+    # Pull out the memcachex specific options.
+    memcachex_options = Keyword.get(options, :memcachex, [])
+
+    # Each Memcache worker gets supervised.
     specs = Enum.map server_name_map, fn {server, name} ->
       {host, port} = parse_server(server)
+      arguments = memcachex_options
+        |> Keyword.merge(hostname: host, port: port)
 
       worker(
         Memcache,
-        [[hostname: host, port: port, coder: Memcache.Coder.JSON], [name: name]],
-        id: {Memcache.Connection, server}
+        [arguments, [name: name]],
+        id: {Memcache, server}
       )
     end
 
