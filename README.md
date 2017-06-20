@@ -3,16 +3,32 @@
 A memcached client that connects to "clusters" of memcached servers and uses
 consistent hashing for key routing.
 
-Features
+## Table of contents
+
+1. [Features](#features)
+1. [Installation](#installation)
+1. [Quickstart](#quickstart)
+1. [Connecting to a cluster](#connecting-to-a-cluster)
+1. [Using modules](#using-modules)
+1. [Using modules with more than one cluster](#using-modules-with-more-than-one-cluster)
+1. [Memcachex options](#memcachex-options)
+1. [Memcachex API](#memcachex-api)
+1. [Ruby compatibility](#ruby-compatibility)
+1. [Supervision](#supervision)
+1. [Running the tests](#running-the-tests)
+1. [TODO](#todo)
+
+## Features
+
  * connect to a "cluster" of memcached servers
- * same consistent hashing algorithm as Ruby's Dalli gem
+ * compatible with Ruby's Dallie gem (same consistent hashing algorithm)
  * fetch with anonymous function
  * multi set
  * multi get
  * multi fetch
  * built in pooling via [poolboy](https://github.com/devinus/poolboy)
- * dynamically namespaced keys
  * complete supervision trees
+
 
 ## Installation
 
@@ -123,6 +139,81 @@ MyOtherCluster.set("foo", "not bar")
 "bar" = MyMainCluster.get("foo")
 "not bar" = MyOtherCluster.get("foo")
 ```
+
+## Memcachex options
+
+Cream uses Memcachex for individual connections to the cluster. You can pass
+options to Memcachex like so:
+
+```elixir
+Cream.Cluster.start_link(
+  servers: ["localhost:11211"],
+  memcachex: [ttl: 3600, namespace: "foo"]
+)
+```
+
+Any option you can pass to
+[`Memcache.start_link`](https://hexdocs.pm/memcachex/Memcache.html#start_link/2),
+you can pass via the `:memcachex` option for `Cream.Cluster.start_link`.
+
+## Memcachex API
+
+`Cream.Cluster`'s API is very small: `get`, `set`, `fetch`, `flush`. It may
+expand in the future, but for now, you can access Memcachex's API directly
+if you need.
+
+Cream will still provide worker pooling and key routing, even when using
+Memcachex's API directly.
+
+If you are using a single key, things are pretty straight forward...
+
+```elixir
+results = Cream.Cluster.with_conn cluster, key, fn conn ->
+  Memcache.get(conn, key)
+end
+```
+
+It gets a bit more complex with a list of keys...
+
+```elixir
+results = Cream.Cluster.with_conn cluster, keys, fn conn, keys ->
+  Memcache.multi_get(conn, keys)
+end
+# results will be a list of whatever was returned by the invocations of the given function.
+```
+
+Basically, Cream will group keys by memcached server and then call the provided
+function for each group and return a list of the results of each call.
+
+## Ruby compatibility
+
+By default, Dalli uses Marshal to encode values stored in memcached, which
+Elixir can't understand. So you have to change to something like JSON:
+
+Ruby
+```ruby
+client = Dalli::Client.new(
+  ["host01:11211", "host2:11211"],
+  serializer: JSON,
+)
+client.set("foo", 100)
+```
+
+Elixir
+```elixir
+{:ok, cluster} = Cream.Cluster.start_link(
+  servers: ["host01:11211", "host2:11211"],
+  memcachex: [coder: Memcache.Coder.JSON]
+)
+Cream.Cluster.get(cluster, "foo")
+# => "100"
+```
+
+So now both Ruby and Elixir will read/write to the memcached cluster in JSON,
+but still beware! There are some differences between how Ruby and Elixir parse
+JSON. For example, if you write an integer with Ruby, Ruby will read an integer,
+but Elixir will read a string.
+
 ## Supervision
 
 Everything is supervised, even the supervisors, so it really does make a
@@ -140,8 +231,15 @@ be inserted into your application's supervision tree.
 
 ## Running the tests
 
-You have to have Docker and Docker Compose installed...
+Test dependencies:
+ * Docker
+ * Docker Compose
+ * Ruby
+ * Bundler
+
+Then run...
 ```
+bundle install
 docker-compose up -d
 mix test
 
