@@ -80,6 +80,15 @@ defmodule Cream.Cluster.Worker do
     {:reply, reply, state}
   end
 
+  def handle_call({:delete, keys}, _from, state) do
+    Enum.group_by(keys, &find_conn(state, &1))
+      |> Enum.map(fn {conn, keys} ->
+        commands = Enum.map(keys, &{:DELETEQ, [&1]})
+        Memcache.Connection.execute_quiet(conn, commands)
+      end)
+      |> reply(state)
+  end
+
   defp reply(reply, state) do
     {:reply, reply, state }
   end

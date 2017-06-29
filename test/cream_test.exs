@@ -114,4 +114,20 @@ defmodule CreamTest do
     assert expected == actual
   end
 
+  test "delete" do
+    Cluster.set({"foo", "bar"})
+    assert Cluster.get("foo") == "bar"
+    Cluster.delete("foo")
+    assert Cluster.get("foo") == nil
+  end
+
+  test "multi delete" do
+    Cluster.set([{"foo", "bar"}, {"one", "two"}])
+    assert Cluster.get("foo") == "bar"
+    assert Cluster.get("one") == "two"
+    Cluster.delete(["foo", "one"])
+    assert Cluster.get("foo") == nil
+    assert Cluster.get("one") == nil
+  end
+
 end

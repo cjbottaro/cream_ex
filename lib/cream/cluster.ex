@@ -87,6 +87,7 @@ defmodule Cream.Cluster do
       def set(pairs), do: Cluster.set(@name, pairs)
       def get(keys), do: Cluster.get(@name, keys)
       def fetch(keys, options \\ [], func), do: Cluster.fetch(@name, keys, options, func)
+      def delete(keys, options \\ []), do: Cluster.delete(@name, keys, options)
       def with_conn(keys, func), do: Cluster.with_conn(@name, keys, func)
       def flush(options \\ []), do: Cluster.flush(@name, options)
 
@@ -134,6 +135,18 @@ defmodule Cream.Cluster do
     missing_hits = generate_missing(missing_keys, options, func)
     set(cluster, missing_hits, options)
     Map.merge(hits, missing_hits)
+  end
+
+  def delete(cluster, keys, options \\ [])
+
+  def delete(cluster, keys, options) when is_list(keys) do
+    with_worker cluster, fn worker ->
+      GenServer.call(worker, {:delete, keys})
+    end
+  end
+
+  def delete(cluster, key, options) when is_binary(key) do
+    delete(cluster, [key], options)
   end
 
   def with_conn(cluster, keys, func) do
