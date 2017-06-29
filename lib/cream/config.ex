@@ -1,4 +1,5 @@
 defmodule Cream.Config do
+  @moduledoc false
 
   defmodule Error, do: defexception message: "configuration error"
 

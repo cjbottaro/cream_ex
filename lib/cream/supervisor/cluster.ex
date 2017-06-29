@@ -1,4 +1,6 @@
 defmodule Cream.Supervisor.Cluster do
+  @moduledoc false
+  
   use Supervisor
 
   import Cream.Utils, only: [parse_server: 1]

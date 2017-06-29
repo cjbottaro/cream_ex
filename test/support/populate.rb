@@ -10,4 +10,9 @@ client = Dalli::Client.new(
   serializer: JSON,
 )
 
+if ARGV[0] == "json"
+  client.set "foo", {"one" => ["two", "three"]}
+  exit(0)
+end
+
 20.times{ |i| client.set("cream_ruby_test_key_#{i}", i) }

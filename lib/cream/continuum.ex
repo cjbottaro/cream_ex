@@ -1,4 +1,5 @@
 defmodule Cream.Continuum do
+  @moduledoc false
 
   @points_per_server 160 # Dalli says this is the default in libmemcached.
 

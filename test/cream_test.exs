@@ -101,9 +101,17 @@ defmodule CreamTest do
     hits = expected_hits
       |> Map.keys
       |> Cluster.get
-      |> Enum.reduce(%{}, fn {k, v}, acc -> Map.put(acc, k, String.to_integer(v)) end)
 
     assert hits == expected_hits
+  end
+
+  test "Dalli compatibility with JSON" do
+    {_, 0} = System.cmd("bundle", ~w(exec ruby test/support/populate.rb json))
+
+    expected = %{"one" => ["two", "three"]}
+    actual = Cluster.get("foo")
+
+    assert expected == actual
   end
 
 end

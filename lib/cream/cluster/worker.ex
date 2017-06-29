@@ -1,6 +1,8 @@
 require Logger
 
 defmodule Cream.Cluster.Worker do
+  @moduledoc false
+
   use GenServer
 
   alias Cream.Continuum
@@ -26,17 +28,13 @@ defmodule Cream.Cluster.Worker do
     end
 
     reply = Enum.reduce pairs_by_conn, [], fn {conn, pairs}, acc ->
-
-      commands = Enum.map(pairs, fn {key, value} -> {:SETQ, [key, value]} end)
-
-      {:ok, responses} = Memcache.Connection.execute_quiet(conn, commands)
+      {:ok, responses} = Memcache.multi_set(conn, pairs)
 
       Enum.zip(pairs, responses)
         |> Enum.reduce(acc, fn {pair, status}, acc ->
           {key, _value} = pair
           [{key, status} | acc]
         end)
-
     end
 
     {:reply, reply, state}
@@ -48,16 +46,10 @@ defmodule Cream.Cluster.Worker do
     end
 
     reply = Enum.reduce keys_by_conn, %{}, fn {conn, keys}, acc ->
-      commands = Enum.map(keys, &({:GETKQ, [&1]})) # [{:GETKQ, ["foo"]}, {:GETKQ, ["bar"]}, ...]
-
-      {:ok, responses} = Memcache.Connection.execute_quiet(conn, commands)
-
-      Enum.reduce(responses, acc, fn response, acc ->
-        case response do
-          {:ok, key, value} -> Map.put(acc, key, value)
-          {:error, "Key not found"} -> acc
-        end
-      end)
+      case Memcache.multi_get(conn, keys) do
+        {:ok, map} -> Map.merge(acc, map)
+        _ -> acc # TODO something better than silently ignore?
+      end
     end
 
     {:reply, reply, state}
@@ -90,10 +82,6 @@ defmodule Cream.Cluster.Worker do
 
   defp reply(reply, state) do
     {:reply, reply, state }
-  end
-
-  defp group_keys_by_conn(keys, state) do
-    Enum.group_by(keys, &find_conn(state, &1))
   end
 
   defp find_conn_and_server(state, key) do

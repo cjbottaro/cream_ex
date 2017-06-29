@@ -1,5 +1,50 @@
 defmodule Cream.Cluster do
+  @moduledoc """
+  Connect to a cluster of memcached servers (or a single server if you want).
 
+  ```elixir
+  {:ok, cluster} = Cream.Cluster.start_link(servers: ["host1:11211", "host2:11211"])
+  Cream.Cluster.get(cluster, "foo")
+  ```
+
+  Using a module and Mix.Config is preferred...
+  ```elixir
+  # In config/*.exs
+
+  use Mix.Config
+  config :cream, servers: ["host1:11211", "host2:11211"]
+
+  # Elsewhere
+
+  defmodule MyCluster do
+    use Cream.Cluster
+  end
+
+  {:ok, _} = MyCluster.start_link
+  MyCluster.get("foo")
+  ```
+  """
+
+  @doc """
+  Connect to memcached server(s)
+
+  ## Options
+
+  * `:servers` - Servers to connect to. Defaults to `["localhost:11211"]`.
+  * `:pool` - Worker pool size. Defaults to `10`.
+  * `:name` - Like name argument for `GenServer.start_link/3`. No default.
+  * `:memcachex` - Keyword list passed through to `Memcache.start_link/2`
+
+  ## Example
+
+  ```elixir
+  {:ok, cluster} = Cream.Cluster.start_link(
+    servers: ["host1:11211", "host2:11211"],
+    name: MyCluster,
+    memcachex: [ttl: 60, namespace: "foo"]
+  )
+  ```
+  """
   def start_link(options \\ []) do
     import Cream.Config, only: [
       default_servers: 0,
