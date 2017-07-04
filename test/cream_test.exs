@@ -130,4 +130,22 @@ defmodule CreamTest do
     assert Cluster.get("one") == nil
   end
 
+  test "repo with overrides" do
+    defmodule Repo, do: use Cream.Cluster
+    Repo.start_link(
+      servers: ["localhost:11201", "localhost:11202", "localhost:11203"],
+      memcachex: [coder: Memcache.Coder.JSON]
+    )
+    Cluster.set([
+      {"foo", "bar"},
+      {"one", "one"},
+      {"two", "two"},
+      {"twe", "twe"},
+    ])
+    assert Repo.get("foo") == "bar"
+    assert Repo.get("one") == "one"
+    assert Repo.get("two") == "two"
+    assert Repo.get("twe") == "twe"
+  end
+
 end

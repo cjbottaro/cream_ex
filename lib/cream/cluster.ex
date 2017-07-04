@@ -72,13 +72,14 @@ defmodule Cream.Cluster do
 
       alias Cream.{Config, Cluster}
 
-      def start_link do
+      def start_link(options \\ []) do
         config = case @config do
           [] -> nil
           config -> config
         end
 
         Config.get(config)
+          |> Keyword.merge(options)
           |> Keyword.put(:name, @name)
           |> Cluster.start_link
       end
