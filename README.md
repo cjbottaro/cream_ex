@@ -10,7 +10,6 @@ consistent hashing for key routing.
 1. [Quickstart](#quickstart)
 1. [Connecting to a cluster](#connecting-to-a-cluster)
 1. [Using modules](#using-modules)
-1. [Using modules with more than one cluster](#using-modules-with-more-than-one-cluster)
 1. [Memcachex options](#memcachex-options)
 1. [Memcachex API](#memcachex-api)
 1. [Ruby compatibility](#ruby-compatibility)
@@ -102,9 +101,7 @@ MyCluster.start_link
 MyCluster.get("foo")
 ```
 
-## Using modules with more than one cluster
-
-Yeah, this works too.
+If you have more than one cluster...
 
 ```elixir
 # In config/*.exs
