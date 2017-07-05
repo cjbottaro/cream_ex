@@ -27,7 +27,7 @@ defmodule Cream.Cluster do
 
   @type t :: GenServer.server
   @type key :: String.t
-  @type key_list :: [key]
+  @type keys :: [key]
   @type value :: String.t | [value] | %{required(String.t) => value}
   @type keys_and_values :: [{key, value}] | %{required(key) => value}
   @type reason :: String.t
@@ -177,7 +177,7 @@ defmodule Cream.Cluster do
   ```
   """
   @spec get(t, key, Keyword.t) :: value
-  @spec get(t, key_list, Keyword.t) :: keys_and_values
+  @spec get(t, keys, Keyword.t) :: keys_and_values
   def get(cluster, key_or_keys, options \\ [])
 
   def get(cluster, key, options) when is_binary(key) do
@@ -197,7 +197,7 @@ defmodule Cream.Cluster do
   Fetch one or more keys.
   """
   @spec fetch(t, key, Keyword.t, (() -> value)) :: value
-  @spec fetch(t, key_list, Keyword.t, (key_list -> [value] | keys_and_values)) :: keys_and_values
+  @spec fetch(t, keys, Keyword.t, (keys -> [value] | keys_and_values)) :: keys_and_values
   def fetch(cluster, key_or_keys, options \\ [], func)
 
   def fetch(cluster, key, options, func) when is_binary(key) do
@@ -229,7 +229,7 @@ defmodule Cream.Cluster do
   ```
   """
   @spec delete(t, key, Keyword.t) :: :ok | {:error, reason}
-  @spec delete(t, key_list, Keyword.t) :: %{required(key) => :ok | {:error, reason}}
+  @spec delete(t, keys, Keyword.t) :: %{required(key) => :ok | {:error, reason}}
   def delete(cluster, key_or_keys, options \\ [])
 
   def delete(cluster, keys, options) when is_list(keys) do
@@ -259,7 +259,7 @@ defmodule Cream.Cluster do
   ```
   """
   @spec with_conn(t, key, (memcache_connection -> any)) :: any
-  @spec with_conn(t, key_list, (memcache_connection, key_list -> any)) :: [any]
+  @spec with_conn(t, keys, (memcache_connection, keys -> any)) :: [any]
   def with_conn(cluster, key_or_keys, func)
 
   def with_conn(cluster, key, func) when is_binary(key) do
