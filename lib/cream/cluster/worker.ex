@@ -21,26 +21,30 @@ defmodule Cream.Cluster.Worker do
     {:ok, %{continuum: continuum, connection_map: connection_map}}
   end
 
-  def handle_call({:set, pairs}, _from, state) do
+  def handle_call({:set, pairs, options}, _from, state) do
 
     pairs_by_conn = Enum.group_by pairs, fn {key, _value} ->
       find_conn(state, key)
     end
 
-    reply = Enum.reduce pairs_by_conn, [], fn {conn, pairs}, acc ->
+    reply = Enum.reduce pairs_by_conn, %{}, fn {conn, pairs}, acc ->
       {:ok, responses} = Memcache.multi_set(conn, pairs)
 
       Enum.zip(pairs, responses)
         |> Enum.reduce(acc, fn {pair, status}, acc ->
           {key, _value} = pair
-          [{key, status} | acc]
+          status = case status do
+            {:ok} -> :ok
+            status -> status
+          end
+          Map.put(acc, key, status)
         end)
     end
 
     {:reply, reply, state}
   end
 
-  def handle_call({:get, keys}, _from, state) do
+  def handle_call({:get, keys, options}, _from, state) do
     keys_by_conn = Enum.group_by keys, fn key ->
       find_conn(state, key)
     end
@@ -80,7 +84,7 @@ defmodule Cream.Cluster.Worker do
     {:reply, reply, state}
   end
 
-  def handle_call({:delete, keys}, _from, state) do
+  def handle_call({:delete, keys, options}, _from, state) do
     Enum.group_by(keys, &find_conn(state, &1))
       |> Enum.map(fn {conn, keys} ->
         commands = Enum.map(keys, &{:DELETEQ, [&1]})
