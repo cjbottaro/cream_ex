@@ -6,7 +6,7 @@ defmodule Cream.Registry do
   end
 
   def new_connection do
-    {:via, Registry, {Cream.Registry, {Memcache.Connection, UUID.uuid4}}}
+    {:via, Registry, {Cream.Registry, {Memcache, UUID.uuid4}}}
   end
 
 end
