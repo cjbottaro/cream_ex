@@ -28,7 +28,7 @@ defmodule Cream.Cluster.Worker do
     end
 
     reply = Enum.reduce pairs_by_conn, %{}, fn {conn, pairs}, acc ->
-      {:ok, responses} = Memcache.multi_set(conn, pairs)
+      {:ok, responses} = Memcache.multi_set(conn, pairs, options)
 
       Enum.zip(pairs, responses)
         |> Enum.reduce(acc, fn {pair, status}, acc ->
@@ -50,7 +50,7 @@ defmodule Cream.Cluster.Worker do
     end
 
     reply = Enum.reduce keys_by_conn, %{}, fn {conn, keys}, acc ->
-      case Memcache.multi_get(conn, keys) do
+      case Memcache.multi_get(conn, keys, options) do
         {:ok, map} -> Map.merge(acc, map)
         _ -> acc # TODO something better than silently ignore?
       end
@@ -84,7 +84,7 @@ defmodule Cream.Cluster.Worker do
     {:reply, reply, state}
   end
 
-  def handle_call({:delete, keys, options}, _from, state) do
+  def handle_call({:delete, keys}, _from, state) do
     Enum.group_by(keys, &find_conn(state, &1))
       |> Enum.map(fn {conn, keys} ->
         commands = Enum.map(keys, &{:DELETEQ, [&1]})

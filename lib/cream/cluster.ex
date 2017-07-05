@@ -96,7 +96,7 @@ defmodule Cream.Cluster do
 
       def set(arg1, arg2 \\ nil, arg3 \\ nil), do: Cluster.set(@name, arg1, arg2, arg3)
       def get(key_or_keys, options \\ []), do: Cluster.get(@name, key_or_keys, options)
-      def delete(key_or_keys, options \\ []), do: Cluster.delete(@name, key_or_keys, options)
+      def delete(key_or_keys), do: Cluster.delete(@name, key_or_keys)
       def fetch(key_or_keys, options \\ [], func), do: Cluster.fetch(@name, key_or_keys, options, func)
       def with_conn(key_or_keys, func), do: Cluster.with_conn(@name, key_or_keys, func)
       def flush(options \\ []), do: Cluster.flush(@name, options)
@@ -228,18 +228,18 @@ defmodule Cream.Cluster do
   delete(["foo", "one"])
   ```
   """
-  @spec delete(t, key, Keyword.t) :: :ok | {:error, reason}
-  @spec delete(t, keys, Keyword.t) :: %{required(key) => :ok | {:error, reason}}
-  def delete(cluster, key_or_keys, options \\ [])
+  @spec delete(t, key) :: :ok | {:error, reason}
+  @spec delete(t, keys) :: %{required(key) => :ok | {:error, reason}}
+  def delete(cluster, key_or_keys)
 
-  def delete(cluster, keys, options) when is_list(keys) do
+  def delete(cluster, keys) when is_list(keys) do
     with_worker cluster, fn worker ->
-      GenServer.call(worker, {:delete, keys, options})
+      GenServer.call(worker, {:delete, keys})
     end
   end
 
-  def delete(cluster, key, options) when is_binary(key) do
-    delete(cluster, [key], options)
+  def delete(cluster, key) when is_binary(key) do
+    delete(cluster, [key])
   end
 
   @doc """
