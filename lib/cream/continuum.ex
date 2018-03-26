@@ -47,7 +47,7 @@ defmodule Cream.Continuum do
 
   end
 
-  defp entry_count_for(server, weight, total_servers, total_weight) do
+  defp entry_count_for(_server, weight, total_servers, total_weight) do
     trunc((total_servers * @points_per_server * weight) / total_weight)
   end
 

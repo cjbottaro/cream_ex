@@ -83,70 +83,53 @@ end
 
 ## Using modules
 
-You can simplify access to your memcached cluster with modules.
+You can use modules to configure clusters, exactly like how Ecto repos work.
 
 ```elixir
 # In config/*.exs
 
-config :cream, servers: ["cache01:11211", "cache02:11211"]
-config :cream, pool: 5
+config :my_app, MyCluster,
+  servers: ["cache01:11211", "cache02:11211"],
+  pool: 5
 
 # Elsewhere
 
 defmodule MyCluster do
-  use Cream.Cluster
+  use Cream.Cluster, otp_app: :my_app
+
+  # Optional callback to do runtime configuration.
+  def init(config) do
+    # config = Keyword.put(config, :pool, System.get_env("POOL_SIZE"))
+    {:ok, config}
+  end
 end
 
 MyCluster.start_link
 MyCluster.get("foo")
 ```
 
-If you have more than one cluster...
-
-```elixir
-# In config/*.exs
-
-config :cream, clusters: [
-  main: [
-    servers: ["cache01:11211", "cache02:11211"],
-    pool: 10
-  ]
-  other: [
-    servers: ["cache03:11211"],
-    pool: 5
-  ]
-]
-
-# Elsewhere
-
-defmodule MyMainCluster do
-  use Cream.Cluster, :main
-end
-
-defmodule MyOtherCluster do
-  use Cream.Cluster, :other
-end
-
-MyMainCluster.start_link
-MyOtherCluster.start_link
-
-MyMainCluster.set("foo", "bar")
-MyOtherCluster.set("foo", "not bar")
-
-"bar" = MyMainCluster.get("foo")
-"not bar" = MyOtherCluster.get("foo")
-```
-
 ## Memcachex options
 
 Cream uses Memcachex for individual connections to the cluster. You can pass
-options to Memcachex like so:
+options to Memcachex via `Cream.Cluster.start_link/1`:
 
 ```elixir
 Cream.Cluster.start_link(
   servers: ["localhost:11211"],
   memcachex: [ttl: 3600, namespace: "foo"]
 )
+```
+
+Or if using modules:
+
+```elixir
+use Mix.Config
+
+config :my_app, MyCluster,
+  servers: ["localhost:11211"],
+  memcachex: [ttl: 3600, namespace: "foo"]
+
+MyCluster.start_link
 ```
 
 Any option you can pass to
@@ -185,7 +168,7 @@ function for each group and return a list of the results of each call.
 ## Ruby compatibility
 
 By default, Dalli uses Marshal to encode values stored in memcached, which
-Elixir can't understand. So you have to change to something like JSON:
+Elixir can't understand. So you have to change the serializer to something like JSON:
 
 Ruby
 ```ruby

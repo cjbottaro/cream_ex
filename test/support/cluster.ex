@@ -1,3 +1,3 @@
 defmodule Test.Cluster do
-  use Cream.Cluster, :three_node_cluster
+  use Cream.Cluster, otp_app: :cream
 end

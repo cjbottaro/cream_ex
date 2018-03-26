@@ -12,12 +12,13 @@ defmodule Cream.Cluster do
   # In config/*.exs
 
   use Mix.Config
-  config :cream, servers: ["host1:11211", "host2:11211"]
+  config :my_app, MyCluster,
+    servers: ["host1:11211", "host2:11211"]
 
   # Elsewhere
 
   defmodule MyCluster do
-    use Cream.Cluster
+    use Cream.Cluster, otp_app: :my_app
   end
 
   {:ok, _} = MyCluster.start_link
@@ -32,6 +33,71 @@ defmodule Cream.Cluster do
   @type keys_and_values :: [{key, value}] | %{required(key) => value}
   @type reason :: String.t
   @type memcache_connection :: GenServer.server
+  @type config :: Keyword.t
+
+  defmacro __using__(opts) do
+    quote location: :keep, bind_quoted: [opts: opts] do
+
+      @otp_app opts[:otp_app]
+
+      def init(config), do: {:ok, config}
+      defoverridable [init: 1]
+
+      def start_link(config \\ []) do
+        Cream.Cluster.start_link(__MODULE__, @otp_app, config)
+      end
+
+      def child_spec(config) do
+        %{ id: __MODULE__, start: {__MODULE__, :start_link, [config]} }
+      end
+
+      def set(arg1, arg2 \\ nil, arg3 \\ nil), do: Cream.Cluster.set(__MODULE__, arg1, arg2, arg3)
+      def get(key_or_keys, options \\ []), do: Cream.Cluster.get(__MODULE__, key_or_keys, options)
+      def delete(key_or_keys), do: Cream.Cluster.delete(__MODULE__, key_or_keys)
+      def fetch(key_or_keys, options \\ [], func), do: Cream.Cluster.fetch(__MODULE__, key_or_keys, options, func)
+      def with_conn(key_or_keys, func), do: Cream.Cluster.with_conn(__MODULE__, key_or_keys, func)
+      def flush(options \\ []), do: Cream.Cluster.flush(__MODULE__, options)
+
+    end
+  end
+
+  @doc """
+  For dynamic / runtime configuration.
+
+  Ex:
+  ```elixir
+  defmodule MyCluster do
+    use Cream.Cluster, otp_app: :my_app
+
+    def init(config) do
+      servers = System.get_env("MEMCACHED_SERVERS") |> String.split(",")
+      config = Keyword.put(config, :servers, servers)
+      {:ok, config}
+    end
+  end
+  ```
+  """
+  @callback init(config) :: {:ok, config} | {:error, reason}
+
+  @doc """
+  For easily putting into supervision tree.
+
+  Ex:
+  ```elixir
+  Supervisor.start_link([MyCluster], opts)
+  ```
+  Or if you want to do runtime config here instead of the `c:init/1` callback for
+  some reason:
+  ```elixir
+  Supervisor.start_link([{MyCluster, servers: servers}], opts)
+  ```
+  """
+  @callback child_spec(config) :: Supervisor.child_spec
+
+  @doc """
+  See `set/3`.
+  """
+  @callback set(key, value) :: :ok | {:error, reason}
 
   @doc """
   Connect to memcached server(s)
@@ -54,53 +120,37 @@ defmodule Cream.Cluster do
   )
   ```
   """
+  @defaults [
+    servers: ["localhost:11211"],
+    pool: 5
+  ]
   @spec start_link(Keyword.t) :: t
   def start_link(options \\ []) do
-    import Cream.Config, only: [
-      default_servers: 0,
-      default_pool: 0
-    ]
-
-    options = options
-      |> Keyword.put_new(:servers, default_servers())
-      |> Keyword.put_new(:pool, default_pool())
+    options = @defaults
+      |> Keyword.merge(options)
+      |> Keyword.update!(:servers, &Cream.Utils.normalize_servers/1)
 
     poolboy_config = [
       worker_module: Cream.Supervisor.Cluster,
       size: options[:pool],
-      name: options[:name],
-    ] |> Keyword.delete(:name, nil) # Remove :name if it's nil.
+    ]
+
+    poolboy_config = if options[:name] do
+      Keyword.put(poolboy_config, :name, {:local, options[:name]})
+    else
+      poolboy_config
+    end
 
     :poolboy.start_link(poolboy_config, options)
   end
 
-  defmacro __using__(config \\ nil) do
-    quote location: :keep, bind_quoted: [config: config] do
-
-      @name {:via, Registry, {Cream.Registry, __MODULE__}}
-      @config config
-
-      alias Cream.{Config, Cluster}
-
-      def start_link(options \\ []) do
-        config = case @config do
-          [] -> nil
-          config -> config
-        end
-
-        Config.get(config)
-          |> Keyword.merge(options)
-          |> Keyword.put(:name, @name)
-          |> Cluster.start_link
-      end
-
-      def set(arg1, arg2 \\ nil, arg3 \\ nil), do: Cluster.set(@name, arg1, arg2, arg3)
-      def get(key_or_keys, options \\ []), do: Cluster.get(@name, key_or_keys, options)
-      def delete(key_or_keys), do: Cluster.delete(@name, key_or_keys)
-      def fetch(key_or_keys, options \\ [], func), do: Cluster.fetch(@name, key_or_keys, options, func)
-      def with_conn(key_or_keys, func), do: Cluster.with_conn(@name, key_or_keys, func)
-      def flush(options \\ []), do: Cluster.flush(@name, options)
-
+  @doc false
+  # This is for starting a module based cluster.
+  def start_link(mod, otp_app, opts) do
+    opts = Keyword.put(opts, :name, mod)
+    config = Application.get_env(otp_app, mod)
+    with {:ok, config} <- mod.init(config) do
+      Keyword.merge(config, opts) |> start_link
     end
   end
 

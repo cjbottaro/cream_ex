@@ -1,2 +1,2 @@
 ExUnit.start()
-Test.Cluster.start_link
+{:ok, _} = Test.Cluster.start_link
