@@ -15,7 +15,7 @@ It uses the same consistent hashing algorithm to connect to a cluster of memcach
 1. [Memcachex API](#memcachex-api)
 1. [Ruby compatibility](#ruby-compatibility)
 1. [Supervision](#supervision)
-1. [Documentation](https://hexdocs.pm/cream/)
+1. [Documentation](https://hexdocs.pm/cream/Cream.Cluster.html)
 1. [Running the tests](#running-the-tests)
 1. [TODO](#todo)
 
@@ -29,17 +29,17 @@ It uses the same consistent hashing algorithm to connect to a cluster of memcach
  * multi fetch
  * built in pooling via [poolboy](https://github.com/devinus/poolboy)
  * complete supervision trees
- * [fully documented](https://hexdocs.pm/cream/)
+ * [fully documented](https://hexdocs.pm/cream/Cream.Cluster.html)
 
 
 ## Installation
 
-This hasn't been published to [hex.pm](https://hex.pm) yet so you have install via Github.
+In your `mix.exs` file...
 
 ```elixir
 def deps do
   [
-    {:cream, git: "https://github.com/cjbottaro/cream.git"}
+    {:cream, ">= 0.1.0"}
   ]
 end
 ```
