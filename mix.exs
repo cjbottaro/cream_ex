@@ -11,7 +11,10 @@ defmodule Cream.Mixfile do
      deps: deps(),
      docs: [
        main: "README",
-       extras: ["README.md": [title: "README"]]
+       extras: [
+         "README.md": [title: "README"],
+         "CHANGELOG.md": [title: "CHANGELOG"]
+       ]
      ]
    ]
   end

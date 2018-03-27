@@ -98,7 +98,7 @@ defmodule Cream.Cluster do
       def fetch(key_or_keys, opts \\ [], func), do: Cream.Cluster.fetch(__MODULE__, key_or_keys, opts, func)
       def with_conn(key_or_keys, func), do: Cream.Cluster.with_conn(__MODULE__, key_or_keys, func)
       def flush(opts \\ []), do: Cream.Cluster.flush(__MODULE__, opts)
-      def write(key, value, opts \\ []), do: Cream.Cluster.write(__MODULE__, key, value, opts)
+      def put(key, value, opts \\ []), do: Cream.Cluster.put(__MODULE__, key, value, opts)
 
     end
   end
@@ -144,9 +144,9 @@ defmodule Cream.Cluster do
     | %{required(key) => :ok | {:error | reason}}
 
   @doc """
-  See `write/4`.
+  See `put/4`.
   """
-  @callback write(key, value, opts :: Keyword.t) :: :ok | {:error, reason}
+  @callback put(key, value, opts :: Keyword.t) :: :ok | {:error, reason}
 
   @doc """
   See `get/2`.
@@ -237,8 +237,8 @@ defmodule Cream.Cluster do
   set(cluster, item, opts \\ [])
   ```
   """
-  @spec write(t, key, value, Keyword.t) :: :ok | {:error, reason}
-  def write(cluster, key, value, opts \\ []) do
+  @spec put(t, key, value, Keyword.t) :: :ok | {:error, reason}
+  def put(cluster, key, value, opts \\ []) do
     set(cluster, {key, value}, opts)
   end
 

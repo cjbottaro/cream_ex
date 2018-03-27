@@ -1,7 +1,8 @@
-# Cream
+# Cache. Rules. Everything. Around. Me.
 
-A memcached client that connects to "clusters" of memcached servers and uses
-consistent hashing for key routing.
+A Dalli compatible memcached client.
+
+It uses the same consistent hashing algorithm to connect to a cluster of memcached servers.
 
 ## Table of contents
 
@@ -14,6 +15,7 @@ consistent hashing for key routing.
 1. [Memcachex API](#memcachex-api)
 1. [Ruby compatibility](#ruby-compatibility)
 1. [Supervision](#supervision)
+1. [Documentation](https://hexdocs.pm/cream/)
 1. [Running the tests](#running-the-tests)
 1. [TODO](#todo)
 
@@ -27,6 +29,7 @@ consistent hashing for key routing.
  * multi fetch
  * built in pooling via [poolboy](https://github.com/devinus/poolboy)
  * complete supervision trees
+ * [fully documented](https://hexdocs.pm/cream/)
 
 
 ## Installation
