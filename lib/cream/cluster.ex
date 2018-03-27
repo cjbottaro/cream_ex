@@ -26,13 +26,54 @@ defmodule Cream.Cluster do
   ```
   """
 
+  @typedoc """
+  Type representing a `Cream.Cluster`.
+  """
   @type t :: GenServer.server
+
+  @typedoc """
+  A memcached key.
+  """
   @type key :: String.t
+
+  @typedoc """
+  A list of keys.
+  """
   @type keys :: [key]
-  @type value :: String.t | [value] | %{required(String.t) => value}
-  @type keys_and_values :: [{key, value}] | %{required(key) => value}
+
+  @typedoc """
+  A value to be stored in memcached.
+  """
+  @type value :: String.t | serializable
+
+  @typedoc """
+  A key value pair.
+  """
+  @type item :: {key, value}
+
+  @typedoc """
+  Multiple items as a list of tuples or a map.
+  """
+  @type items :: [item] | [%{required(key) => value}]
+
+  @typedoc """
+  Reason associated with an error.
+  """
   @type reason :: String.t
+
+  @typedoc """
+  A `Memcache.Connection`.
+  """
   @type memcache_connection :: GenServer.server
+
+  @typedoc """
+  Anything serializable (to JSON).
+  """
+  @type serializable :: list | map
+
+  @typedoc """
+  Configuration options.
+  """
   @type config :: Keyword.t
 
   defmacro __using__(opts) do
@@ -51,12 +92,13 @@ defmodule Cream.Cluster do
         %{ id: __MODULE__, start: {__MODULE__, :start_link, [config]} }
       end
 
-      def set(arg1, arg2 \\ nil, arg3 \\ nil), do: Cream.Cluster.set(__MODULE__, arg1, arg2, arg3)
-      def get(key_or_keys, options \\ []), do: Cream.Cluster.get(__MODULE__, key_or_keys, options)
+      def set(items, opts \\ []), do: Cream.Cluster.set(__MODULE__, items, opts)
+      def get(key_or_keys, opts \\ []), do: Cream.Cluster.get(__MODULE__, key_or_keys, opts)
       def delete(key_or_keys), do: Cream.Cluster.delete(__MODULE__, key_or_keys)
-      def fetch(key_or_keys, options \\ [], func), do: Cream.Cluster.fetch(__MODULE__, key_or_keys, options, func)
+      def fetch(key_or_keys, opts \\ [], func), do: Cream.Cluster.fetch(__MODULE__, key_or_keys, opts, func)
       def with_conn(key_or_keys, func), do: Cream.Cluster.with_conn(__MODULE__, key_or_keys, func)
-      def flush(options \\ []), do: Cream.Cluster.flush(__MODULE__, options)
+      def flush(opts \\ []), do: Cream.Cluster.flush(__MODULE__, opts)
+      def write(key, value, opts \\ []), do: Cream.Cluster.write(__MODULE__, key, value, opts)
 
     end
   end
@@ -97,7 +139,36 @@ defmodule Cream.Cluster do
   @doc """
   See `set/3`.
   """
-  @callback set(key, value) :: :ok | {:error, reason}
+  @callback set(item_or_items :: item | items, opts :: Keyword.t) ::
+    :ok | {:error, reason}
+    | %{required(key) => :ok | {:error | reason}}
+
+  @doc """
+  See `write/4`.
+  """
+  @callback write(key, value, opts :: Keyword.t) :: :ok | {:error, reason}
+
+  @doc """
+  See `get/2`.
+  """
+  @callback get(key_or_keys :: key | keys) :: value | items
+
+  @doc """
+  See `fetch/4`.
+  """
+  @callback fetch(key_or_keys :: key | keys, f :: (() -> value) | (keys -> [value] | items)) :: value | items
+
+  @doc """
+  See `delete/2`.
+  """
+  @callback delete(key_or_keys :: key | keys) ::
+    (:ok | {:error, reason})
+    | [{key, :ok | {:error, reason}}]
+
+  @doc """
+  See `flush/2`.
+  """
+  @callback flush(opts :: Keyword.t) :: :ok | {:error, reason}
 
   @doc """
   Connect to memcached server(s)
@@ -125,23 +196,23 @@ defmodule Cream.Cluster do
     pool: 5
   ]
   @spec start_link(Keyword.t) :: t
-  def start_link(options \\ []) do
-    options = @defaults
-      |> Keyword.merge(options)
+  def start_link(opts \\ []) do
+    opts = @defaults
+      |> Keyword.merge(opts)
       |> Keyword.update!(:servers, &Cream.Utils.normalize_servers/1)
 
     poolboy_config = [
       worker_module: Cream.Supervisor.Cluster,
-      size: options[:pool],
+      size: opts[:pool],
     ]
 
-    poolboy_config = if options[:name] do
-      Keyword.put(poolboy_config, :name, {:local, options[:name]})
+    poolboy_config = if opts[:name] do
+      Keyword.put(poolboy_config, :name, {:local, opts[:name]})
     else
       poolboy_config
     end
 
-    :poolboy.start_link(poolboy_config, options)
+    :poolboy.start_link(poolboy_config, opts)
   end
 
   @doc false
@@ -154,67 +225,52 @@ defmodule Cream.Cluster do
     end
   end
 
+  @doc ~S"""
+  Set the value of a single key.
+
+  This a convenience function for `set(cluster, {key, value}, opts)`.
+  See `set/3`.
+
+  It has a different name because the follow definitions conflict:
+  ```elixir
+  set(cluster, key, value, opts \\ [])
+  set(cluster, item, opts \\ [])
+  ```
+  """
+  @spec write(t, key, value, Keyword.t) :: :ok | {:error, reason}
+  def write(cluster, key, value, opts \\ []) do
+    set(cluster, {key, value}, opts)
+  end
+
   @doc """
   Set one or more keys.
 
-  ## Single key
-
-  `set(cluster, key, value, options \\\\ [])`
-
-  `set(cluster, {key, value}, options \\\\ [])`
-
-  ## Multiple keys
-
-  `set(cluster, keys_and_values, options \\\\ [])`
-
-  ## Examples
+  Single key examples:
+  ```elixir
+  set(cluster, {key, value})
+  set(cluster, {key, value}, ttl: 300)
   ```
-  # Single
-  set("foo", "bar")
-  set("foo", "bar", ttl: 60)
-  set({"foo", "bar"})
-  set({"foo", "bar"}, ttl: 60)
 
-  # Multiple
-  set(%{"one" => "one", "two" => "two"})
-  set(%{"one" => "one", "two" => "two"}, ttl: 60)
-  set([{"one", "one"}, {"two", "two"}])
-  set([{"one", "one"}, {"two", "two"}], ttl: 60)
+  Multiple key examples:
+  ```elixir
+  set(cluster, [{k1, v1}, {k2, v2}])
+  set(cluster, [{k1, v1}, {k2, v2}], ttl: 300)
+
+  set(cluster, %{k1 => v1, k2 => v2})
+  set(cluster, %{k1 => v1, k2 => v2}, ttl: 300)
   ```
   """
-  @spec set(t, key, value, Keyword.t) :: :ok | {:error, reason}
-  @spec set(t, {key, value}, Keyword.t, nil) :: :ok | {:error, reason}
-  @spec set(t, keys_and_values, Keyword.t, nil) :: %{required(key) => :ok | {:error, reason}}
-  def set(cluster, arg1, arg2 \\ nil, arg3 \\ nil)
+  @spec set(t, item | items, Keyword.t) :: :ok | {:error, reason}
+  def set(cluster, item_or_items, opts \\ [])
 
-  def set(cluster, key_value, nil, nil) when is_tuple(key_value) do
-    {key, value} = key_value
-    set(cluster, key, value, nil)
-  end
-
-  def set(cluster, keys_and_values, nil, nil) do
-    set(cluster, keys_and_values, [], nil)
-  end
-
-  def set(cluster, key, value, nil) when is_binary(key) do
-    set(cluster, key, value, [])
-  end
-
-  def set(cluster, key_value, options, nil) when is_tuple(key_value) do
-    {key, value} = key_value
-    set(cluster, key, value, options)
-  end
-
-  def set(cluster, keys_and_values, options, nil) do
+  def set(cluster, items, opts) when is_list(items) or is_map(items) do
     with_worker cluster, fn worker ->
-      GenServer.call(worker, {:set, keys_and_values, options})
+      GenServer.call(worker, {:set, items, opts})
     end
   end
 
-  def set(cluster, key, value, options) when is_binary(key) do
-    case set(cluster, [{key, value}], options) do
-      %{ ^key => value } -> value
-    end
+  def set(cluster, item, opts) when is_tuple(item) do
+    set(cluster, [item], opts) |> Map.values |> List.first
   end
 
   @doc """
@@ -227,45 +283,66 @@ defmodule Cream.Cluster do
   ```
   """
   @spec get(t, key, Keyword.t) :: value
-  @spec get(t, keys, Keyword.t) :: keys_and_values
-  def get(cluster, key_or_keys, options \\ [])
+  @spec get(t, keys, Keyword.t) :: items
+  def get(cluster, key_or_keys, opts \\ [])
 
-  def get(cluster, key, options) when is_binary(key) do
-    case get(cluster, [key], options) do
+  def get(cluster, key, opts) when is_binary(key) do
+    case get(cluster, [key], opts) do
       %{ ^key => value } -> value
       _ -> nil
     end
   end
 
-  def get(cluster, keys, options) do
+  def get(cluster, keys, opts) do
     with_worker cluster, fn worker ->
-      GenServer.call(worker, {:get, keys, options})
+      GenServer.call(worker, {:get, keys, opts})
     end
   end
 
   @doc """
-  Fetch one or more keys.
+  Fetch one or more keys, falling back to a function if a key doesn't exist.
+
+  `opts` is the same as for `set/3`.
+
+  Ex:
+  ```elixir
+  fetch(cluster, "foo", fn -> "bar" end)
+
+  fetch(cluster, ["foo", "bar"], fn missing_keys ->
+    Enum.map(missing_keys, fn missing_key ->
+      calc_value(missing_key)
+    end)
+  end)
+
+  # In this example, we explicitly associate missing keys with values.
+  fetch(cluster, ["foo", "bar"], fn missing_keys ->
+    Enum.shuffle(missing_keys)
+      |> Enum.map(fn missing_key ->
+        {missing_key, calc_value(missing_key)}
+      end)
+  end)
+  ```
   """
   @spec fetch(t, key, Keyword.t, (() -> value)) :: value
-  @spec fetch(t, keys, Keyword.t, (keys -> [value] | keys_and_values)) :: keys_and_values
-  def fetch(cluster, key_or_keys, options \\ [], func)
+  @spec fetch(t, keys, Keyword.t, (keys -> [value] | items)) :: items
+  def fetch(cluster, key_or_keys, opts \\ [], func)
 
-  def fetch(cluster, key, options, func) when is_binary(key) do
-    case get(cluster, [key], options) do
+  def fetch(cluster, key, opts, func) when is_binary(key) do
+    case get(cluster, [key], opts) do
       %{^key => value} ->
         value
       %{} ->
         value = func.()
-        set(cluster, key, value, options)
+        set(cluster, {key, value}, opts)
         value
     end
   end
 
-  def fetch(cluster, keys, options, func) when is_list(keys) do
-    hits = get(cluster, keys, options)
+  def fetch(cluster, keys, opts, func) when is_list(keys) do
+    hits = get(cluster, keys, opts)
     missing_keys = Enum.reject(keys, &Map.has_key?(hits, &1))
     missing_hits = generate_missing(missing_keys, func)
-    set(cluster, missing_hits, options)
+    set(cluster, missing_hits, opts)
     Map.merge(hits, missing_hits)
   end
 
@@ -326,9 +403,9 @@ defmodule Cream.Cluster do
   Flush all memcached servers in the cluster.
   """
   @spec flush(t, Keyword.t) :: [:ok | {:error, reason}]
-  def flush(cluster, options \\ []) do
+  def flush(cluster, opts \\ []) do
     with_worker cluster, fn worker ->
-      GenServer.call(worker, {:flush, options})
+      GenServer.call(worker, {:flush, opts})
     end
   end
 
