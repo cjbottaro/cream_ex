@@ -9,8 +9,17 @@ defmodule Cream.Mixfile do
      start_permanent: Mix.env == :prod,
      elixirc_paths: elixirc_paths(Mix.env),
      deps: deps(),
+
+      # Hex
+      description: "Dalli compatible memcached client with cluster support.",
+      package: [
+        maintainers: ["Christopher J. Bottaro"],
+        licenses: ["GNU General Public License v3.0"],
+        links: %{"GitHub" => "https://github.com/cjbottaro/cream_ex"},
+      ],
+
      docs: [
-       main: "README",
+       main: "readme",
        extras: [
          "README.md": [title: "README"],
          "CHANGELOG.md": [title: "CHANGELOG"]
