@@ -1,4 +1,5 @@
 defmodule Cream.Instrumentation do
+  @moduledoc false
 
   def instrument(tag, opts \\ [], f) do
     Instrumentation.instrument "cream", tag, fn ->
