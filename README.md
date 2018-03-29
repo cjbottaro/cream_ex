@@ -249,6 +249,5 @@ docker-compose rm
 
 ## TODO
 
-* Module documentation at [https://hexdocs.pm/cream](https://hexdocs.pm/cream)
 * Server weights
 * Parallel memcached requests
