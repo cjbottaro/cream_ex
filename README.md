@@ -31,6 +31,7 @@ It uses the same consistent hashing algorithm to connect to a cluster of memcach
  * built in pooling via [poolboy](https://github.com/devinus/poolboy)
  * complete supervision trees
  * [fully documented](https://hexdocs.pm/cream/Cream.Cluster.html)
+ * instrumentation with the [Instrumentation](https://hexdocs.pm/instrumentation) package.
 
 
 ## Installation
