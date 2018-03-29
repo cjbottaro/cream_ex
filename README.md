@@ -15,6 +15,7 @@ It uses the same consistent hashing algorithm to connect to a cluster of memcach
 1. [Memcachex API](#memcachex-api)
 1. [Ruby compatibility](#ruby-compatibility)
 1. [Supervision](#supervision)
+1. [Instrumentation](#instrumentation)
 1. [Documentation](https://hexdocs.pm/cream/Cream.Cluster.html)
 1. [Running the tests](#running-the-tests)
 1. [TODO](#todo)
@@ -211,6 +212,21 @@ No pids are stored anywhere, but instead processes are tracked via Elixir's
 
 The results of `Cream.Cluster.start_link` and `MyClusterModule.start_link` can
 be inserted into your application's supervision tree.
+
+## Instrumentation
+
+Cream uses [Instrumentation](https://hexdocs.pm/instrumentation) for... well,
+instrumentation. It's default logging is hooked into this package. You can do
+your own logging (or instrumentation) very easily.
+
+```elixir
+config :my_app, MyCluster,
+  log: false
+
+Instrumentation.subscribe "cream", fn tag, payload ->
+  Logger.debug("cream.#{tag} took #{payload[:duration]} ms")
+end
+```
 
 ## Running the tests
 

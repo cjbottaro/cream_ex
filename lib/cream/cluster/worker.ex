@@ -86,9 +86,20 @@ defmodule Cream.Cluster.Worker do
 
   def handle_call({:delete, keys}, _from, state) do
     Enum.group_by(keys, &find_conn(state, &1))
-      |> Enum.map(fn {conn, keys} ->
+      |> Enum.reduce(%{}, fn {conn, keys}, results ->
         commands = Enum.map(keys, &{:DELETEQ, [&1]})
-        Memcache.Connection.execute_quiet(conn, commands)
+        case Memcache.Connection.execute_quiet(conn, commands) do
+          {:ok, conn_results} -> Enum.zip(keys, conn_results)
+            |> Enum.reduce(results, fn {key, conn_results}, results ->
+              case conn_results do
+                {:ok} -> Map.put(results, key, :ok)
+                error -> Map.put(results, key, error)
+              end
+            end)
+          {:error, _} -> Enum.reduce(keys, results, fn key, results ->
+            Map.put(results, key, {:error, "connection error"})
+          end)
+        end
       end)
       |> reply(state)
   end

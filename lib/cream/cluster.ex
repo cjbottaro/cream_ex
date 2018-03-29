@@ -26,6 +26,8 @@ defmodule Cream.Cluster do
   ```
   """
 
+  import Cream.Instrumentation
+
   @typedoc """
   Type representing a `Cream.Cluster`.
   """
@@ -193,7 +195,8 @@ defmodule Cream.Cluster do
   """
   @defaults [
     servers: ["localhost:11211"],
-    pool: 5
+    pool: 5,
+    log: :debug
   ]
   @spec start_link(Keyword.t) :: t
   def start_link(opts \\ []) do
@@ -212,7 +215,30 @@ defmodule Cream.Cluster do
       poolboy_config
     end
 
-    :poolboy.start_link(poolboy_config, opts)
+    # This is so gross. There is no way to link or register a poolboy process,
+    # so we gotta wrap it in a task which subscribes to instrumentation.
+
+    parent = self()
+    rand = :crypto.strong_rand_bytes(8)
+
+    result = Task.start_link fn ->
+      if log_level = opts[:log] do
+        Instrumentation.subscribe "cream", fn tag, payload ->
+          Logger.bare_log(log_level, "cream.#{tag} #{inspect(payload)}")
+        end
+      end
+
+      {:ok, _pid} = :poolboy.start_link(poolboy_config, opts)
+      send(parent, {:cream_ready, rand})
+      :timer.sleep(:infinity)
+    end
+
+    receive do
+      {:cream_ready, ^rand} -> result
+    after
+      5000 -> {:error, "startup timeout"}
+    end
+
   end
 
   @doc false
@@ -265,7 +291,9 @@ defmodule Cream.Cluster do
 
   def set(cluster, items, opts) when is_list(items) or is_map(items) do
     with_worker cluster, fn worker ->
-      GenServer.call(worker, {:set, items, opts})
+      instrument "set", [items: items], fn ->
+        GenServer.call(worker, {:set, items, opts})
+      end
     end
   end
 
@@ -295,7 +323,9 @@ defmodule Cream.Cluster do
 
   def get(cluster, keys, opts) do
     with_worker cluster, fn worker ->
-      GenServer.call(worker, {:get, keys, opts})
+      instrument "get", [keys: keys], fn ->
+        GenServer.call(worker, {:get, keys, opts})
+      end
     end
   end
 
@@ -328,22 +358,27 @@ defmodule Cream.Cluster do
   def fetch(cluster, key_or_keys, opts \\ [], func)
 
   def fetch(cluster, key, opts, func) when is_binary(key) do
-    case get(cluster, [key], opts) do
-      %{^key => value} ->
-        value
-      %{} ->
-        value = func.()
-        set(cluster, {key, value}, opts)
-        value
+    instrument "fetch", [key: key], fn ->
+      case get(cluster, [key], opts) do
+        %{^key => value} ->
+          {value, :hit}
+        %{} ->
+          value = func.()
+          set(cluster, {key, value}, opts)
+          {value, :miss}
+      end
     end
   end
 
   def fetch(cluster, keys, opts, func) when is_list(keys) do
-    hits = get(cluster, keys, opts)
-    missing_keys = Enum.reject(keys, &Map.has_key?(hits, &1))
-    missing_hits = generate_missing(missing_keys, func)
-    set(cluster, missing_hits, opts)
-    Map.merge(hits, missing_hits)
+    instrument "fetch", [keys: keys], fn ->
+      hits = get(cluster, keys, opts)
+      missing_keys = Enum.reject(keys, &Map.has_key?(hits, &1))
+      missing_hits = generate_missing(missing_keys, func)
+      set(cluster, missing_hits, opts)
+      results = Map.merge(hits, missing_hits)
+      {results, missing_keys}
+    end
   end
 
   @doc """
@@ -361,12 +396,14 @@ defmodule Cream.Cluster do
 
   def delete(cluster, keys) when is_list(keys) do
     with_worker cluster, fn worker ->
-      GenServer.call(worker, {:delete, keys})
+      instrument "delete", [keys: keys], fn ->
+        GenServer.call(worker, {:delete, keys})
+      end
     end
   end
 
   def delete(cluster, key) when is_binary(key) do
-    delete(cluster, [key])
+    delete(cluster, [key]) |> Map.values |> List.first
   end
 
   @doc """
@@ -405,7 +442,9 @@ defmodule Cream.Cluster do
   @spec flush(t, Keyword.t) :: [:ok | {:error, reason}]
   def flush(cluster, opts \\ []) do
     with_worker cluster, fn worker ->
-      GenServer.call(worker, {:flush, opts})
+      instrument "flush", fn ->
+        GenServer.call(worker, {:flush, opts})
+      end
     end
   end
 

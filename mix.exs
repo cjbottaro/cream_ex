@@ -63,6 +63,7 @@ defmodule Cream.Mixfile do
       {:poison, ">= 2.0.0"},
       {:poolboy, "~> 1.5"},
       {:ex_doc, "~> 0.0", only: :dev},
+      {:instrumentation, ">= 0.1.0"}
     ]
   end
 end
