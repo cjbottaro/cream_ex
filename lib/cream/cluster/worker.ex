@@ -28,7 +28,12 @@ defmodule Cream.Cluster.Worker do
     end
 
     reply = Enum.reduce pairs_by_conn, %{}, fn {conn, pairs}, acc ->
-      {:ok, responses} = Memcache.multi_set(conn, pairs, options)
+      responses = case Memcache.multi_set(conn, pairs, options) do
+        {:ok, results} -> results
+        {:error, reason} when is_atom(reason) -> Enum.map(pairs, fn _ ->
+          {:error, Atom.to_string(reason)}
+        end)
+      end
 
       Enum.zip(pairs, responses)
         |> Enum.reduce(acc, fn {pair, status}, acc ->
