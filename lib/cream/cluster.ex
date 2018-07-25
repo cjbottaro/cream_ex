@@ -54,9 +54,14 @@ defmodule Cream.Cluster do
   @type item :: {key, value}
 
   @typedoc """
+  Multiple items as a map.
+  """
+  @type items_map :: %{required(key) => value}
+
+  @typedoc """
   Multiple items as a list of tuples or a map.
   """
-  @type items :: [item] | [%{required(key) => value}]
+  @type items :: [item] | items_map
 
   @typedoc """
   Reason associated with an error.
@@ -286,8 +291,9 @@ defmodule Cream.Cluster do
   set(cluster, %{k1 => v1, k2 => v2}, ttl: 300)
   ```
   """
-  @spec set(t, item | items, Keyword.t) :: :ok | {:error, reason}
-  def set(cluster, item_or_items, opts \\ [])
+ @spec set(t, item, Keyword.t()) :: :ok | {:error, reason}
+ @spec set(t, items, Keyword.t()) :: %{required(key) => :ok | {:error, reason}}
+ def set(cluster, item_or_items, opts \\ [])
 
   def set(cluster, items, opts) when is_list(items) or is_map(items) do
     with_worker cluster, fn worker ->
@@ -311,7 +317,7 @@ defmodule Cream.Cluster do
   ```
   """
   @spec get(t, key, Keyword.t) :: value
-  @spec get(t, keys, Keyword.t) :: items
+  @spec get(t, keys, Keyword.t) :: items_map
   def get(cluster, key_or_keys, opts \\ [])
 
   def get(cluster, key, opts) when is_binary(key) do
