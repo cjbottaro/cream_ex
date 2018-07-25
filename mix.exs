@@ -24,7 +24,8 @@ defmodule Cream.Mixfile do
          "README.md": [title: "README"],
          "CHANGELOG.md": [title: "CHANGELOG"]
        ]
-     ]
+     ],
+     dialyzer: [ignore_warnings: ".dialyzer_ignore"]
    ]
   end
 
