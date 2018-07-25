@@ -316,7 +316,7 @@ defmodule Cream.Cluster do
   %{"foo" => "bar", "one" => "one"} = get(pid, ["foo", "bar"])
   ```
   """
-  @spec get(t, key, Keyword.t) :: value
+  @spec get(t, key, Keyword.t) :: value | nil
   @spec get(t, keys, Keyword.t) :: items_map
   def get(cluster, key_or_keys, opts \\ [])
 
