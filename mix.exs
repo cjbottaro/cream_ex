@@ -58,12 +58,9 @@ defmodule Cream.Mixfile do
   # Type "mix help deps" for more examples and options
   defp deps do
     [
-      {:memcachex, ">= 0.4.0"},
-      {:uuid, "~> 1.1"},
-      {:poison, ">= 2.0.0"},
-      {:poolboy, "~> 1.5"},
-      {:ex_doc, "~> 0.0", only: :dev},
-      {:instrumentation, ">= 0.1.0"}
+      {:telemetry, "~> 0.4.2"},
+      {:connection, "~> 1.0"},
+      {:socket, "~> 0.3.13"},
     ]
   end
 end
