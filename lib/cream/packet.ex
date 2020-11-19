@@ -4,19 +4,19 @@ defmodule Cream.Packet do
   @response_magic 0x81
 
   defstruct [
-    magic:              @request_magic,
-    opcode:             nil,
-    key_length:         0x0000,
+    magic:             @request_magic,
+    opcode:            nil,
+    key_length:        0x0000,
     extra_length:      0x00,
-    data_type:          0x00,
-    vbucket_id:         0x0000,
-    status:             0x0000,
-    total_body_length:  0x00000000,
-    opaque:             0x00000000,
-    cas:                0x0000000000000000,
+    data_type:         0x00,
+    vbucket_id:        0x0000,
+    status:            0x0000,
+    total_body_length: 0x00000000,
+    opaque:            0x00000000,
+    cas:               0x0000000000000000,
     extra:             "",
-    key:                "",
-    value:              ""
+    key:               "",
+    value:             ""
   ]
 
   @atom_to_opcode %{
@@ -70,8 +70,10 @@ defmodule Cream.Packet do
     packet = %{packet |
       extra: serialize_extra(opcode, options),
       key: options[:key] || "",
-      value: options[:value] || ""
+      value: options[:value] || "",
     }
+
+    packet = add_cas(packet, options)
 
     extra_length  = IO.iodata_length(packet.extra)
     key_length    = byte_size(packet.key)
@@ -82,6 +84,18 @@ defmodule Cream.Packet do
       key_length: key_length,
       total_body_length: extra_length + key_length + value_length
     }
+  end
+
+  def add_cas(packet, options) when packet.opcode in [:set, :setq] do
+    if options[:cas] do
+      %{packet | cas: options[:cas] }
+    else
+      packet
+    end
+  end
+
+  def add_cas(packet, _options) do
+    packet
   end
 
   def serialize_extra(opcode, options) when opcode in [:set, :setq] do
@@ -112,7 +126,7 @@ defmodule Cream.Packet do
       <<packet.magic             :: bytes(1) >>,
       <<opcode                   :: bytes(1) >>,
       <<packet.key_length        :: bytes(2) >>,
-      <<packet.extra_length     :: bytes(1) >>,
+      <<packet.extra_length      :: bytes(1) >>,
       <<packet.data_type         :: bytes(1) >>,
       <<packet.vbucket_id        :: bytes(2) >>,
       <<packet.total_body_length :: bytes(4) >>,
@@ -129,7 +143,7 @@ defmodule Cream.Packet do
       @response_magic   :: bytes(1),
       opcode            :: bytes(1),
       key_length        :: bytes(2),
-      extra_length     :: bytes(1),
+      extra_length      :: bytes(1),
       data_type         :: bytes(1),
       status            :: bytes(2),
       total_body_length :: bytes(4),
@@ -141,7 +155,7 @@ defmodule Cream.Packet do
       magic:              @response_magic,
       opcode:             @opcode_to_atom[opcode],
       key_length:         key_length,
-      extra_length:      extra_length,
+      extra_length:       extra_length,
       data_type:          data_type,
       status:             @status_to_atom[status],
       total_body_length:  total_body_length,

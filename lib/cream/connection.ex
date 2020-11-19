@@ -20,29 +20,25 @@ defmodule Cream.Connection do
     Connection.call(conn, {:recv_packets, count})
   end
 
-  def get(conn, key, options \\ []) do
-    args = Keyword.merge(options, key: key)
-    with :ok <- send_packets(conn, [Packet.new(:get, args)]),
-      {:ok, [packet]} <- recv_packets(conn, 1)
-    do
-      case packet.status do
-        :ok -> packet.value
-        :not_found -> nil
-      end
-    else
-      error -> error
-    end
-  end
-
-  def set(conn, key, value, options \\ []) do
-    args = Keyword.merge(options, key: key, value: value)
-    with :ok <- send_packets(conn, [Packet.new(:set, args)]),
+  def flush(conn, options \\ []) do
+    with :ok <- send_packets(conn, [Packet.new(:flush, options)]),
       {:ok, [packet]} <- recv_packets(conn, 1)
     do
       packet.status
-    else
-      error -> error
     end
+  end
+
+  def get(conn, key, options \\ []) do
+    args = Keyword.put(options, :key, key)
+    Connection.call(conn, {:get, args})
+  end
+
+  def set(conn, item, options \\ []) do
+    Connection.call(conn, {:set, item, options})
+  end
+
+  def mget(conn, keys, options \\ []) do
+    Connection.call(conn, {:mget, keys, options})
   end
 
   def init(options) do
@@ -72,6 +68,57 @@ defmodule Cream.Connection do
 
   def handle_call({:recv_packets, count}, _from, state) do
     {:reply, do_recv_packets(state.socket, count), state}
+  end
+
+  def handle_call({:get, args}, _from, state) do
+    retval = with :ok <- do_send_packets(state.socket, [Packet.new(:get, args)]),
+      {:ok, [packet]} <- do_recv_packets(state.socket, 1)
+    do
+      cond do
+        packet.status == :not_found -> nil
+        args[:cas] -> {:ok, {packet.value, packet.cas}}
+        true -> {:ok, packet.value}
+      end
+    end
+
+    {:reply, retval, state}
+  end
+
+  def handle_call({:set, item, args}, _from, state) do
+    {key, value, cas} = case item do
+      {key, value} -> {key, value, 0}
+      {key, value, cas} -> {key, value, cas}
+    end
+
+    args = Keyword.merge(args, [key: key, value: value, cas: cas])
+
+    retval = with :ok <- do_send_packets(state.socket, [Packet.new(:set, args)]),
+      {:ok, [packet]} <- do_recv_packets(state.socket, 1)
+    do
+      packet.status
+    end
+
+    {:reply, retval, state}
+  end
+
+  def handle_call({:mget, keys, options}, _from, state) do
+    packets = Enum.map(keys, fn key ->
+      Packet.new(:getkq, Keyword.put(options, :key, key))
+    end)
+
+    # Eww, no good way to append to list.
+    packets = packets ++ [Packet.new(:noop)]
+
+    retval = with :ok <- do_send_packets(state.socket, packets),
+      {:ok, packets} <- do_recv_packets(state.socket, :noop)
+    do
+      Enum.reduce(packets, %{}, fn
+        packet, results when packet.opcode == :noop -> results
+        packet, results -> Map.put(results, packet.key, packet.value)
+      end)
+    end
+
+    {:reply, retval, state}
   end
 
   defp do_send_packets(socket, packets) do
