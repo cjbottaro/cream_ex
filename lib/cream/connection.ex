@@ -1,185 +1,295 @@
 defmodule Cream.Connection do
   use Connection
   require Logger
-  alias Cream.Packet
+  alias Cream.{Protocol}
 
   @defaults [
     server: "localhost:11211"
   ]
 
-  def start_link(options \\ []) do
-    options = Keyword.merge(@defaults, options)
-    Connection.start_link(__MODULE__, options)
-  end
+  def start_link(config \\ []) do
+    mix_config = Application.get_application(__MODULE__)
+    |> Application.get_env(__MODULE__, [])
 
-  def send_packets(conn, packets) do
-    Connection.call(conn, {:send_packets, packets})
-  end
+    config = Keyword.merge(@defaults, mix_config)
+    |> Keyword.merge(config)
 
-  def recv_packets(conn, count) do
-    Connection.call(conn, {:recv_packets, count})
+    Connection.start_link(__MODULE__, config)
   end
 
   def flush(conn, options \\ []) do
-    with :ok <- send_packets(conn, [Packet.new(:flush, options)]),
-      {:ok, [packet]} <- recv_packets(conn, 1)
-    do
-      packet.status
-    end
-  end
-
-  def get(conn, key, options \\ []) do
-    args = Keyword.put(options, :key, key)
-    Connection.call(conn, {:get, args})
+    Connection.call(conn, {:flush, options})
   end
 
   def set(conn, item, options \\ []) do
     Connection.call(conn, {:set, item, options})
   end
 
+  def get(conn, key, options \\ []) do
+    Connection.call(conn, {:get, key, options})
+  end
+
+  def mset(conn, items, options \\ []) do
+    Connection.call(conn, {:mset, items, options})
+  end
+
   def mget(conn, keys, options \\ []) do
     Connection.call(conn, {:mget, keys, options})
   end
 
-  def init(options) do
+  def noop(conn) do
+    Connection.call(conn, :noop)
+  end
+
+  def init(config) do
     state = %{
-      options: options,
+      config: config,
       socket: nil,
+      coder: nil,
+      errors: 0,
     }
 
     {:connect, :init, state}
   end
 
-  def connect(_context, state) do
-    server = state.options[:server]
-    url = "tcp://#{server}"
+  def connect(context, state) do
+    %{config: config} = state
 
-    case Socket.connect(url) do
-      {:ok, socket} -> {:ok, %{state | socket: socket}}
+    server = config[:server]
+    [host, port] = String.split(server, ":")
+    host = String.to_charlist(host)
+    port = String.to_integer(port)
+
+    start = System.monotonic_time(:microsecond)
+
+    case :gen_tcp.connect(host, port, [:binary, active: true]) do
+      {:ok, socket} ->
+        :telemetry.execute(
+          [:cream, :connection, :connect],
+          %{usec: System.monotonic_time(:microsecond) - start},
+          %{context: context, server: server}
+        )
+        {:ok, %{state | socket: socket, errors: 0}}
+
       {:error, reason} ->
-        Logger.warn("#{server} #{reason}")
-        {:backoff, 1000, state}
+        errors = state.errors + 1
+        :telemetry.execute(
+          [:cream, :connection, :error],
+          %{usec: System.monotonic_time(:microsecond) - start},
+          %{context: context, reason: reason, server: server, count: errors}
+        )
+        {:backoff, 1000, %{state | errors: errors}}
     end
   end
 
-  def handle_call({:send_packets, packets}, _from, state) do
-    {:reply, do_send_packets(state.socket, packets), state}
+  def disconnect(reason, state) do
+    %{config: config, socket: socket} = state
+
+    :telemetry.execute(
+      [:cream, :connection, :disconnect],
+      %{},
+      %{reason: reason, server: config[:server]}
+    )
+
+    :ok = :gen_tcp.close(socket)
+
+    {:connect, reason, %{state | socket: nil}}
   end
 
-  def handle_call({:recv_packets, count}, _from, state) do
-    {:reply, do_recv_packets(state.socket, count), state}
+  def handle_call(_command, _from, state) when is_nil(state.socket) do
+    {:reply, {:error, :not_connected}, state}
   end
 
-  def handle_call({:get, args}, _from, state) do
-    retval = with :ok <- do_send_packets(state.socket, [Packet.new(:get, args)]),
-      {:ok, [packet]} <- do_recv_packets(state.socket, 1)
+  def handle_call({:flush, options}, _from, state) do
+    %{socket: socket} = state
+
+    with :ok <- :inet.setopts(socket, active: false),
+      :ok <- :gen_tcp.send(socket, Protocol.flush(options)),
+      {:ok, packet} <- Protocol.recv_packet(socket),
+      :ok <- :inet.setopts(socket, active: true)
     do
-      cond do
-        packet.status == :not_found -> nil
-        args[:cas] -> {:ok, {packet.value, packet.cas}}
-        true -> {:ok, packet.value}
+      case packet.status do
+        :ok -> {:reply, :ok, state}
+        error -> {:reply, {:error, error}, state}
       end
+    else
+      {:error, reason} -> {:disconnect, reason, state}
     end
-
-    {:reply, retval, state}
   end
 
-  def handle_call({:set, item, args}, _from, state) do
-    {key, value, cas} = case item do
-      {key, value} -> {key, value, 0}
-      {key, value, cas} -> {key, value, cas}
-    end
+  def handle_call({:set, item, options}, _from, state) do
+    %{socket: socket} = state
 
-    args = Keyword.merge(args, [key: key, value: value, cas: cas])
-
-    retval = with :ok <- do_send_packets(state.socket, [Packet.new(:set, args)]),
-      {:ok, [packet]} <- do_recv_packets(state.socket, 1)
+    with {:ok, key, value, item_opts} <- parse_item(item),
+      {:ok, value, flags} <- encode(value, state),
+      packet = Protocol.set(key, value, flags, item_opts),
+      :ok <- :inet.setopts(socket, active: false),
+      :ok <- :gen_tcp.send(socket, packet),
+      {:ok, packet} <- Protocol.recv_packet(socket),
+      :ok <- :inet.setopts(socket, active: true)
     do
-      packet.status
+      case packet.status do
+        :ok -> if options[:cas] do
+          {:reply, {:ok, packet.cas}, state}
+        else
+          {:reply, :ok, state}
+        end
+        error -> {:reply, {:error, error}, state}
+      end
+    else
+      {:error, reason} -> {:disconnect, reason, state}
     end
+  end
 
-    {:reply, retval, state}
+  def handle_call({:get, key, options}, _from, state) do
+    %{socket: socket} = state
+
+    packet = Protocol.get(key, options)
+
+    with :ok <- :inet.setopts(socket, active: false),
+      :ok <- :gen_tcp.send(socket, packet),
+      {:ok, packet} <- Protocol.recv_packet(socket),
+      :ok <- :inet.setopts(socket, active: true)
+    do
+      case packet.status do
+        :ok ->
+          {:ok, value} = decode(packet.value, packet.extras.flags, state)
+          case options[:cas] do
+            true -> {:reply, {:ok, {value, packet.cas}}, state}
+            _ -> {:reply, {:ok, value}, state}
+          end
+        error -> {:reply, {:error, error}, state}
+      end
+    else
+      {:error, reason} -> {:disconnect, reason, state}
+    end
+  end
+
+  def handle_call({:mset, items, options}, _from, state) do
+    %{socket: socket} = state
+
+    packet_opts = Keyword.take(options, [:expiry])
+
+    with {:ok, packets} <- items_to_packets(items, packet_opts, state),
+      :ok <- :inet.setopts(socket, active: false),
+      :ok <- :gen_tcp.send(socket, packets),
+      {:ok, packets} <- Protocol.recv_packets(socket, Enum.count(packets)),
+      :ok <- :inet.setopts(socket, active: true)
+    do
+      results = if options[:cas] do
+        Enum.map(packets, fn
+          %{status: :ok, cas: cas} -> {:ok, cas}
+          %{status: reason} -> {:error, reason}
+        end)
+      else
+        Enum.map(packets, fn
+          %{status: :ok} -> :ok
+          %{status: reason} -> {:error, reason}
+        end)
+      end
+
+      {:reply, {:ok, results}, state}
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
   end
 
   def handle_call({:mget, keys, options}, _from, state) do
-    packets = Enum.map(keys, fn key ->
-      Packet.new(:getkq, Keyword.put(options, :key, key))
+    %{socket: socket} = state
+
+    packets = Enum.map(keys, fn
+      {key, _opts} -> Protocol.getkq(to_string(key))
+      key -> Protocol.getkq(to_string(key))
     end)
 
-    # Eww, no good way to append to list.
-    packets = packets ++ [Packet.new(:noop)]
+    packets = [packets, Protocol.noop()]
 
-    retval = with :ok <- do_send_packets(state.socket, packets),
-      {:ok, packets} <- do_recv_packets(state.socket, :noop)
+    with :ok <- :inet.setopts(socket, active: false),
+      :ok <- :gen_tcp.send(socket, packets),
+      {:ok, packets} <- Protocol.recv_packets(socket, :noop),
+      :ok <- :inet.setopts(socket, active: true)
     do
-      Enum.reduce(packets, %{}, fn
-        packet, results when packet.opcode == :noop -> results
-        packet, results -> Map.put(results, packet.key, packet.value)
+      values_by_key = Enum.reduce_while(packets, %{}, fn packet, acc ->
+        case packet.opcode do
+          :noop -> {:halt, acc}
+          _ -> {:cont, Map.put(acc, packet.key, {packet.value, packet.cas})}
+        end
       end)
-    end
 
-    {:reply, retval, state}
-  end
+      cas = Keyword.get(options, :cas, false)
 
-  defp do_send_packets(socket, packets) do
-    Enum.reduce_while(packets, :ok, fn packet, _result ->
-      case Socket.Stream.send(socket, Packet.serialize(packet)) do
-        :ok -> {:cont, :ok}
-        error -> {:halt, error}
-      end
-    end)
-  end
+      responses = Enum.map(keys, fn key ->
+        {key, opts} = case key do
+          {key, opts} -> {key, opts}
+          key -> {key, []}
+        end
 
-  defp do_recv_packets(socket, :noop) do
-    Stream.repeatedly(fn -> do_recv_packet(socket) end)
-    |> Enum.reduce_while([], fn
-      {:ok, packet}, packets -> if packet.opcode == :noop do
-        {:halt, [packet | packets]}
-      else
-        {:cont, [packet | packets]}
-      end
-      error, _packets -> {:halt, error}
-    end)
-    |> case do
-      {:error, reason} -> {:error, reason}
-      packets -> {:ok, Enum.reverse(packets)}
-    end
-  end
+        cas = opts[:cas] || cas
 
-  defp do_recv_packets(socket, count) do
-    Enum.reduce_while(1..count, [], fn _i, packets ->
-      case do_recv_packet(socket) do
-        {:ok, packet} -> {:cont, [packet | packets]}
-        error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:error, reason} -> {:error, reason}
-      packets -> {:ok, Enum.reverse(packets)}
-    end
-  end
+        case {values_by_key[key], cas} do
+          {nil, _} -> {:error, :not_found}
+          {{value, _cas}, false} -> {:ok, value}
+          {value_cas, true} -> {:ok, value_cas}
+        end
+      end)
 
-  defp do_recv_packet(socket) do
-    with {:ok, data} <- do_recv_header(socket),
-      packet = Packet.deserialize_header(data),
-      {:ok, data} <- do_recv_body(socket, packet)
-    do
-      {:ok, Packet.deserialize_body(packet, data)}
+      {:reply, {:ok, responses}, state}
     else
+      {:error, reason} -> {:disconnect, reason, state}
+    end
+  end
+
+  def handle_call(:noop, _from, state) do
+    %{socket: socket} = state
+
+    with :ok <- :inet.setopts(socket, active: false),
+      :ok <- :gen_tcp.send(socket, Protocol.noop()),
+      {:ok, packet} <- Protocol.recv_packet(socket),
+      :ok <- :inet.setopts(socket, active: true)
+    do
+      {:reply, {:ok, packet}, state}
+    else
+      error -> {:reply, error, state}
+    end
+  end
+
+  def handle_info({:tcp_closed, _socket}, state) do
+    {:disconnect, :tcp_closed, state}
+  end
+
+  defp items_to_packets(items, opts, state) do
+    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, packets} ->
+      with {:ok, key, value, opts} <- parse_item(item, opts),
+        {:ok, value, flags} <- encode(value, state)
+      do
+        packet = Protocol.set(key, value, flags, opts)
+        {:cont, {:ok, [packet | packets]}}
+      else
+        error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, packets} -> {:ok, Enum.reverse(packets)}
       error -> error
     end
   end
 
-  defp do_recv_header(socket) do
-    Socket.Stream.recv(socket, 24)
+  defp parse_item(item, options \\ []) do
+    case item do
+      {key, value} -> {:ok, key, value, options}
+      {key, value, opts} -> {:ok, key, value, Keyword.merge(options, opts)}
+      _ -> {:error, :invalid_item}
+    end
   end
 
-  defp do_recv_body(_socket, packet) when packet.total_body_length == 0 do
-    {:ok, ""}
+  defp encode(value, %{coder: nil}), do: {:ok, value, 0}
+  defp encode(value, %{coder: coder}) do
+    coder.encode(value)
   end
 
-  defp do_recv_body(socket, packet) when packet.total_body_length > 0 do
-    Socket.Stream.recv(socket, packet.total_body_length)
+  defp decode(value, _flags, %{coder: nil}), do: {:ok, value}
+  defp decode(value, flags, %{coder: coder}) do
+    coder.decode(value, flags)
   end
 
 end

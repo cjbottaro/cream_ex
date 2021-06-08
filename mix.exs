@@ -42,7 +42,7 @@ defmodule Cream.Mixfile do
   def application do
     [
       # Specify extra applications you'll use from Erlang/Elixir
-      extra_applications: [:logger],
+      extra_applications: [:logger, :crypto],
       mod: {Cream.Application, []}
     ]
   end
@@ -60,7 +60,6 @@ defmodule Cream.Mixfile do
     [
       {:telemetry, "~> 0.4.2"},
       {:connection, "~> 1.0"},
-      {:socket, "~> 0.3.13"},
     ]
   end
 end
