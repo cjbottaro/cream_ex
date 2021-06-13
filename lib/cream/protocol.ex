@@ -70,7 +70,7 @@ defmodule Cream.Protocol do
     ]
   end
 
-  def set(key, value, flags, options \\ []) do
+  def set({key, value, flags, options}) do
     expiry = Keyword.get(options, :expiry, 0)
     cas = Keyword.get(options, :cas, 0)
 

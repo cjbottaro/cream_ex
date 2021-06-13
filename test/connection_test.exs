@@ -10,21 +10,44 @@ defmodule ConnectionTest do
 
   setup %{conn: conn} do
     :ok = Connection.flush(conn)
+    :ok = Connection.set(conn, {"name", "Callie"})
   end
 
-  test "set/get", %{conn: conn} do
-    {:error, :not_found} = Connection.get(conn, "foo")
-    {:error, :not_found} = Connection.get(conn, "foo", cas: true)
-
+  test "set", %{conn: conn} do
     :ok = Connection.set(conn, {"foo", "bar"})
+    {:ok, cas} = Connection.set(conn, {"foo", "bar"}, cas: true)
+    {:error, :exists} = Connection.set(conn, {"foo", "bar1", cas: cas+1})
+    {:ok, "bar"} = Connection.get(conn, "foo")
+    :ok = Connection.set(conn, {"foo", "bar1", cas: cas})
+    {:ok, "bar1"} = Connection.get(conn, "foo")
+  end
+
+  test "get", %{conn: conn} do
+    {:ok, nil} = Connection.get(conn, "foo")
+    {:error, :not_found} = Connection.get(conn, "foo", verbose: true)
+    {:ok, "Callie"} = Connection.get(conn, "name")
+    {:ok, {"Callie", cas}} = Connection.get(conn, "name", cas: true)
+    assert is_integer(cas)
+  end
+
+  test "mset", %{conn: conn} do
+    :ok = Connection.mset(conn, [
+      {"foo", "bar"},
+      {"name", "Genevieve"}
+    ])
 
     {:ok, "bar"} = Connection.get(conn, "foo")
-    {:ok, {"bar", cas}} = Connection.get(conn, "foo", cas: true)
+    {:ok, "Genevieve"} = Connection.get(conn, "name")
 
-    {:error, :exists} = Connection.set(conn, {"foo", "baz", cas: cas-1})
-    {:ok, "bar"} = Connection.get(conn, "foo")
-    :ok = Connection.set(conn, {"foo", "baz", cas: cas})
-    {:ok, "baz"} = Connection.get(conn, "foo")
+    {:ok, [ok: foo_cas, ok: name_cas]} = Connection.mset(conn, [
+      {"foo", "bar"},
+      {"name", "Genevieve"}
+    ], cas: true)
+
+    {:ok, [{:error, :exists}, :ok]} = Connection.mset(conn, [
+      {"foo", "bar", cas: foo_cas+1},
+      {"name", "Callie", cas: name_cas}
+    ])
   end
 
   test "mset/mget", %{conn: conn} do
