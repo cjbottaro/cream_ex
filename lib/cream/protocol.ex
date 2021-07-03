@@ -54,7 +54,7 @@ defmodule Cream.Protocol do
   end
 
   def flush(options \\ []) do
-    expiry = Keyword.get(options, :expiry, 0)
+    expiry = Keyword.get(options, :ttl, 0)
 
     [
       <<@request::bytes(1)>>,
@@ -70,10 +70,7 @@ defmodule Cream.Protocol do
     ]
   end
 
-  def set({key, value, flags, options}) do
-    expiry = Keyword.get(options, :expiry, 0)
-    cas = Keyword.get(options, :cas, 0)
-
+  def set({key, value, ttl, cas, flags}) do
     key_size = byte_size(key)
     value_size = byte_size(value)
     body_size = key_size + value_size + 8
@@ -89,7 +86,7 @@ defmodule Cream.Protocol do
       <<0x00::bytes(4)>>,
       <<cas::bytes(8)>>,
       <<flags::bytes(4)>>,
-      <<expiry::bytes(4)>>,
+      <<ttl::bytes(4)>>,
       key,
       value
     ]
@@ -120,7 +117,7 @@ defmodule Cream.Protocol do
     ]
   end
 
-  def get(key, _options \\ []) do
+  def get(key) do
     key_size = byte_size(key)
 
     [

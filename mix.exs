@@ -60,6 +60,9 @@ defmodule Cream.Mixfile do
     [
       {:telemetry, "~> 0.4.2"},
       {:connection, "~> 1.0"},
+      {:nimble_pool, "~> 0.0"},
+      {:jason, "~> 1.0", only: [:dev, :test]},
+      {:ex_doc, "~> 0.0", only: :dev},
     ]
   end
 end

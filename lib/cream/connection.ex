@@ -1,86 +1,277 @@
 defmodule Cream.Connection do
+  @moduledoc """
+  Basic connection to a single memcached server.
+
+  ## Global configuration
+
+  You can globally configure _all connections_ via `Config`.
+  ```
+  import Config
+
+  config :cream, Cream.Connection, server: "foo.bar.com:11211"
+  ```
+
+  Now every single connection will use `"foo.bar.com:11211"` for `:server`
+  unless overwritten by an argument passed to `start_link/1` or `child_spec/1`.
+
+  ## Reconnecting
+
+  This uses the awesome `Connection` behaviour and also "active" sockets, which
+  means a few things...
+  1. `start_link/1` will typically always succeed.
+  1. Disconnections are detected immediately.
+  1. Reconnections are retried indefinitely.
+
+  While a connection is in a disconnected state, any operations on the
+  connection will result in `{:error, :not_connected}`.
+
+  ## Coders
+
+  Coders serialize and deserialize item values. They are also responsible for
+  setting flags on items.
+
+  Let's make a simple JSON coder.
+
+  ```
+  defmodule JsonCoder do
+    @behaviour Cream.Coder
+    use Bitwise
+
+    def encode(value, flags) when is_map(value) do
+      value = Jason.encode!(value)
+      flags = flags &&& 0x1
+      {:ok, value, flags}
+    end
+
+    def encode(value, flags) do
+      flags = flags &&& 0x0
+      {:ok, value, flags}
+    end
+
+    def decode(value, flags) when flags &&& 0x1 do
+      {:ok, Jason.decode!(value)}
+    end
+
+    def decode(value, flags) do
+      {:ok, value}
+    end
+  end
+  ```
+  """
+
   use Connection
   require Logger
   alias Cream.{Protocol}
 
+  @typedoc """
+  A connection.
+  """
   @type t :: GenServer.server()
-  @type cas :: non_neg_integer()
+
+  @typedoc """
+  Item used with `set/3`.
+
+  An item is a key/value tuple or a key/value/opts tuple.
+
+  ```
+  {"foo", "bar"}
+  {"foo", "bar", ttl: 60}
+  {"foo", "bar", cas: 123}
+  {"foo", "bar", ttl: 60, cas: 123}
+  ```
+  """
+  @type item :: {binary, term} | {binary, term, Keyword.t}
+
+  @typedoc """
+  An error reason.
+  """
   @type reason :: atom | binary | term
-  @type get_result :: {:ok, term} | {:ok, {term, cas}} | {:error, reason}
+
+  @typedoc """
+  Check and set value.
+  """
+  @type cas :: non_neg_integer()
 
   @defaults [
-    server: "localhost:11211"
+    server: "localhost:11211",
+    coder: nil,
   ]
 
-  def start_link(config \\ []) do
-    mix_config = Application.get_application(__MODULE__)
+  @doc """
+  Default config.
+
+  ```
+  #{inspect @defaults, pretty: true, width: 0}
+  ```
+  """
+  def defaults, do: @defaults
+
+  @doc """
+  `Config` merged with `defaults/0`.
+
+  ```
+  import Config
+  config :cream, Cream.Connection, coder: FooCoder
+
+  iex(1)> Cream.Connection.config()
+  #{inspect Keyword.merge(@defaults, coder: FooCoder), pretty: true, width: 0}
+  ```
+  """
+  def config do
+    config = Application.get_application(__MODULE__)
     |> Application.get_env(__MODULE__, [])
 
-    config = Keyword.merge(@defaults, mix_config)
-    |> Keyword.merge(config)
+    Keyword.merge(@defaults, config)
+  end
 
+  @doc """
+  Start connection.
+
+  The given `config` will be merged over `config/0`.
+
+  See `defaults/0` for config options.
+
+  Note that this will typically _always_ return `{:ok conn}`, even if the actual
+  TCP connection failed. If that is the case, subsequent uses of the connection
+  will return `{:error, :not_connected}`.
+
+  ```
+  {:ok, conn} = #{inspect __MODULE__}.start_link()
+
+  {:ok, conn} = #{inspect __MODULE__}.start_link(server: "memcache.foo.com:11211")
+  ```
+  """
+  @spec start_link(Keyword.t) :: {:ok, t} | {:error, reason}
+  def start_link(config \\ []) do
+    config = Keyword.merge(config(), config)
     Connection.start_link(__MODULE__, config)
   end
 
-  def flush(conn, options \\ []) do
-    Connection.call(conn, {:flush, options})
-  end
+  @doc """
+  Clear all keys.
 
-  def set(conn, item, options \\ []) when is_tuple(item) do
-    Connection.call(conn, {:set, item, options})
+  ```
+  # Flush immediately
+  iex(1)> #{inspect __MODULE__}.flush(conn)
+  :ok
+
+  # Flush after 60 seconds
+  iex(1)> #{inspect __MODULE__}.flush(conn, ttl: 60)
+  :ok
+  ```
+  """
+  @spec flush(t, Keyword.t) :: :ok | {:error, reason}
+  def flush(conn, opts \\ []) do
+    Connection.call(conn, {:flush, opts})
   end
 
   @doc """
-  Get a single value.
+  Set a single item.
 
   ## Options
+
+  * `ttl` (`integer`) - Apply time to live (expiry) to the item. Default `nil`.
+  * `return_cas` (`boolean`) - Return cas value in result. Default `false`.
+
+  If `ttl` is set explicitly on the item, that will take precedence over
+  the `ttl` specified in `opts`.
+
+  ## Examples
+
+  ```
+  # Basic set
+  iex(1)> set(conn, {"foo", "bar"})
+  :ok
+
+  # Use ttl on item.
+  iex(1)> set(conn, {"foo", "bar", ttl: 60})
+  :ok
+
+  # Use ttl from opts.
+  iex(1)> set(conn, {"foo", "bar"}, ttl: 60)
+  :ok
+
+  # Return cas value.
+  iex(1)> set(conn, {"foo", "bar"}, return_cas: true)
+  {:ok, 123}
+
+  # Set using bad cas value results in error.
+  iex(1)> set(conn, {"foo", "bar", cas: 124})
+  {:error, :exists}
+
+  # Set using cas value and return new cas value.
+  iex(1)> set(conn, {"foo", "bar", cas: 123}, return_cas: true)
+  {:ok, 124}
+
+  # Set using cas.
+  iex(1)> set(conn, {"foo", "bar", cas: 124})
+  :ok
+  ```
+  """
+  @spec set(t, item, Keyword.t) :: :ok | {:ok, cas} | {:error, reason}
+  def set(conn, item, opts \\ []) do
+    item = Cream.Utils.normalize_item(item)
+    Connection.call(conn, {:set, item, opts})
+  end
+
+  @doc """
+  Get a single item.
+
+  ## Options
+
   * `verbose` (boolean, default false) Missing value will return `{:error, :not_found}`.
-  * `cas` (boolean, default false) Return cas value along with key value.
+  * `cas` (boolean, default false) Return cas value in result.
 
   ## Examples
 
   ```
-  {:ok, nil} = get(conn, "foo")
+  iex(1)> get(conn, "foo")
+  {:ok, nil}
 
-  {:error, :not_found} = get(conn, "foo", verbose: true)
+  iex(1)> get(conn, "foo", verbose: true)
+  {:error, :not_found}
 
-  {:ok, "Callie"} = get(conn, "name")
+  iex(1)> get(conn, "name")
+  {:ok, "Callie"}
 
-  {:ok, {"Callie", 123}} = get(conn, "name", cas: true)
+  iex(1)> get(conn, "name", return_cas: true)
+  {:ok, "Callie", 123}
   ```
   """
-  @spec get(t, binary, Keyword.t) :: get_result
+  @spec get(t, binary, Keyword.t) :: {:ok, term} | {:ok, term, cas} | {:error, reason}
   def get(conn, key, options \\ []) do
-    Connection.call(conn, {:get, key, options})
-  end
+    case Connection.call(conn, {:get, key, options}) do
+      {:error, :not_found} = result -> if options[:verbose] do
+        result
+      else
+        {:ok, nil}
+      end
 
-  def mset(conn, items, options \\ []) do
-    Connection.call(conn, {:mset, items, options})
+      result -> result
+    end
   end
 
   @doc """
-  Get multiple values.
+  Send a noop command to server.
 
-  ## Options
-  * `verbose :: boolean \\\\ false` Missing value will return `{:error, :not_found}`.
-  * `cas :: boolean \\\\ false` Return cas value along with key value.
-
-  ## Examples
+  You can use this to see if you are connected to the server.
   ```
-  {:ok, [{:ok, nil}, {:ok, "Callie"}]} = mget(conn, ["foo", "name"])
+  iex(1)> noop(conn)
+  :ok
 
-  {:ok, [{:error, :not_found}, {:ok, "Callie"}]} = mget(conn, ["foo", "name"], verbose: true)
-
-  {:ok, [{:ok, nil}, {:ok, {"Callie", 123}]} = mget(conn, ["foo", "name"], cas: true)
+  iex(1)> noop(conn)
+  {:error, :not_connected}
   ```
   """
-  @spec mget(t, [binary], Keyword.t) :: {:ok, [get_result]} | {:error, reason}
-  def mget(conn, keys, options \\ []) do
-    Connection.call(conn, {:mget, keys, options})
-  end
-
+  @spec noop(t) :: :ok | {:error, reason}
   def noop(conn) do
-    Connection.call(conn, :noop)
+    case Connection.call(conn, :noop) do
+      {:ok, packet} -> case packet do
+        %{status: :ok} -> :ok
+        %{status: reason} -> {:error, reason}
+      end
+      error -> error
+    end
   end
 
   def init(config) do
@@ -159,20 +350,20 @@ defmodule Cream.Connection do
     end
   end
 
-  def handle_call({:set, item, options}, _from, state) do
+  def handle_call({:set, item, opts}, _from, state) do
     %{socket: socket} = state
 
-    item_opts = Keyword.take(options, [:expiry])
+    {key, value, ttl, cas} = item
 
-    with {:ok, item} <- normalize_item(item, item_opts, state),
-      packet = Protocol.set(item),
+    with {:ok, value, flags} <- encode(value, state),
+      packet = Protocol.set({key, value, ttl, cas, flags}),
       :ok <- :inet.setopts(socket, active: false),
       :ok <- :gen_tcp.send(socket, packet),
       {:ok, packet} <- Protocol.recv_packet(socket),
       :ok <- :inet.setopts(socket, active: true)
     do
       case packet.status do
-        :ok -> if options[:cas] do
+        :ok -> if opts[:return_cas] do
           {:reply, {:ok, packet.cas}, state}
         else
           {:reply, :ok, state}
@@ -184,10 +375,10 @@ defmodule Cream.Connection do
     end
   end
 
-  def handle_call({:get, key, options}, _from, state) do
+  def handle_call({:get, key, opts}, _from, state) do
     %{socket: socket} = state
 
-    packet = Protocol.get(key, options)
+    packet = Protocol.get(key)
 
     with :ok <- :inet.setopts(socket, active: false),
       :ok <- :gen_tcp.send(socket, packet),
@@ -197,8 +388,8 @@ defmodule Cream.Connection do
       case packet.status do
         :ok ->
           with {:ok, value} <- decode(packet.value, packet.extras.flags, state) do
-            if options[:cas] do
-              {:reply, {:ok, {value, packet.cas}}, state}
+            if opts[:return_cas] do
+              {:reply, {:ok, value, packet.cas}, state}
             else
               {:reply, {:ok, value}, state}
             end
@@ -206,94 +397,8 @@ defmodule Cream.Connection do
             {:error, reason} -> {:reply, {:error, reason}, state}
           end
 
-        :not_found -> if options[:verbose] do
-          {:reply, {:error, :not_found}, state}
-        else
-          {:reply, {:ok, nil}, state}
-        end
-
         reason -> {:reply, {:error, reason}, state}
       end
-    else
-      {:error, reason} -> {:disconnect, reason, state}
-    end
-  end
-
-  def handle_call({:mset, items, options}, _from, state) do
-    %{socket: socket} = state
-
-    item_opts = Keyword.take(options, [:expiry])
-    count = Enum.count(items)
-
-    with {:ok, items} <- normalize_items(items, item_opts, state),
-      packets = Enum.map(items, &Protocol.set/1),
-      :ok <- :inet.setopts(socket, active: false),
-      :ok <- :gen_tcp.send(socket, packets),
-      {:ok, packets} <- Protocol.recv_packets(socket, count),
-      :ok <- :inet.setopts(socket, active: true)
-    do
-      result = if options[:cas] do
-        Enum.map(packets, fn
-          %{status: :ok, cas: cas} -> {:ok, cas}
-          %{status: reason} -> {:error, reason}
-        end)
-      else
-        Enum.map(packets, fn
-          %{status: :ok} -> :ok
-          %{status: reason} -> {:error, reason}
-        end)
-      end
-
-      if Enum.all?(result, & &1 == :ok) do
-        {:reply, :ok, state}
-      else
-        {:reply, {:ok, result}, state}
-      end
-    else
-      {:error, reason} -> {:reply, {:error, reason}, state}
-    end
-  end
-
-  def handle_call({:mget, keys, options}, _from, state) do
-    %{socket: socket} = state
-
-    packets = Enum.map(keys, fn
-      {key, _opts} -> Protocol.getkq(to_string(key))
-      key -> Protocol.getkq(to_string(key))
-    end)
-
-    packets = [packets, Protocol.noop()]
-
-    with :ok <- :inet.setopts(socket, active: false),
-      :ok <- :gen_tcp.send(socket, packets),
-      {:ok, packets} <- Protocol.recv_packets(socket, :noop),
-      :ok <- :inet.setopts(socket, active: true)
-    do
-      values_by_key = Enum.reduce_while(packets, %{}, fn packet, acc ->
-        case packet.opcode do
-          :noop -> {:halt, acc}
-          _ -> {:cont, Map.put(acc, packet.key, {packet.value, packet.cas})}
-        end
-      end)
-
-      cas = Keyword.get(options, :cas, false)
-
-      responses = Enum.map(keys, fn key ->
-        {key, opts} = case key do
-          {key, opts} -> {key, opts}
-          key -> {key, []}
-        end
-
-        cas = opts[:cas] || cas
-
-        case {values_by_key[key], cas} do
-          {nil, _} -> {:error, :not_found}
-          {{value, _cas}, false} -> {:ok, value}
-          {value_cas, true} -> {:ok, value_cas}
-        end
-      end)
-
-      {:reply, {:ok, responses}, state}
     else
       {:error, reason} -> {:disconnect, reason, state}
     end
@@ -317,37 +422,9 @@ defmodule Cream.Connection do
     {:disconnect, :tcp_closed, state}
   end
 
-  defp normalize_items(items, opts, state) do
-    Enum.reduce_while(items, [], fn item, acc ->
-      with {:ok, item} <- normalize_item(item, opts, state) do
-        {:cont, [item | acc]}
-      else
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:error, reason} -> {:error, reason}
-      items -> {:ok, Enum.reverse(items)}
-    end
-  end
-
-  defp normalize_item(item, opts, state) do
-    item = case item do
-      {key, value} -> {:ok, key, value, opts}
-      {key, value, item_opts} -> {:ok, key, value, Keyword.merge(opts, item_opts)}
-      _ -> {:error, :invalid_item}
-    end
-
-    with {:ok, key, value, opts} <- item,
-      {:ok, value, flags} <- encode(value, state)
-    do
-      {:ok, {key, value, flags, opts}}
-    end
-  end
-
   defp encode(value, %{coder: nil}), do: {:ok, value, 0}
   defp encode(value, %{coder: coder}) do
-    coder.encode(value)
+    {coder.encode(value), 0}
   end
 
   defp decode(value, _flags, %{coder: nil}), do: {:ok, value}
