@@ -22,3 +22,5 @@ erl_crash.dump
 .bundle
 
 .elixir_ls
+
+vendor/bundle

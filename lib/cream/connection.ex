@@ -2,6 +2,9 @@ defmodule Cream.Connection do
   @moduledoc """
   Basic connection to a single memcached server.
 
+  You probably don't want this unless you're making some low level Memcached
+  client. See `Cream.Client` instead.
+
   ## Global configuration
 
   You can globally configure _all connections_ via `Config`.
@@ -13,6 +16,8 @@ defmodule Cream.Connection do
 
   Now every single connection will use `"foo.bar.com:11211"` for `:server`
   unless overwritten by an argument passed to `start_link/1` or `child_spec/1`.
+
+  > **IMPORTANT!** This will affect connections made by `Cream.Client`.
 
   ## Reconnecting
 

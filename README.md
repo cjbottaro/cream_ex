@@ -239,8 +239,10 @@ Test dependencies:
 
 Then run...
 ```
-bundle install
 docker-compose up -d
+bundle install --path vendor/bundle
+bundle exec ruby test/support/populate.rb
+
 mix test
 
 # Stop and clean up containers
