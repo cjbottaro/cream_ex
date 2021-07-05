@@ -1,7 +1,7 @@
 defmodule ConnectionTest do
   use ExUnit.Case
 
-  alias Cream.Connection
+  alias Cream.{Connection, Coder}
 
   setup_all do
     {:ok, conn} = Connection.start_link()
@@ -29,6 +29,35 @@ defmodule ConnectionTest do
     {:ok, "Callie"} = Connection.get(conn, "name")
     {:ok, "Callie", cas} = Connection.get(conn, "name", return_cas: true)
     assert is_integer(cas)
+  end
+
+  # Note that this uses Cream.Coder.Json which is different from
+  # Cream.Coder.Jason and only exists in test env.
+  test "single coder", %{conn: conn} do
+    coder = Coder.Json
+    map = %{"a" => "b"}
+    json = ~S({"a":"b"})
+
+    # Encode maps.
+    :ok = Connection.set(conn, {"foo", map}, coder: coder)
+    {:ok, ^map} = Connection.get(conn, "foo", coder: coder)
+    {:ok, ^json} = Connection.get(conn, "foo")
+
+    # Doesn't encode binaries.
+    :ok = Connection.set(conn, {"foo", json}, coder: coder)
+    {:ok, ^json} = Connection.get(conn, "foo", coder: coder)
+    {:ok, ^json} = Connection.get(conn, "foo")
+  end
+
+  test "double coder", %{conn: conn} do
+    coder = [Coder.Jason, Coder.Gzip]
+    map = %{"a" => "b"}
+
+    :ok = Connection.set(conn, {"foo", map}, coder: coder)
+    {:ok, ^map} = Connection.get(conn, "foo", coder: coder)
+
+    {:ok, data} = Connection.get(conn, "foo")
+    {:ok, ^map} = :zlib.gunzip(data) |> Jason.decode()
   end
 
 end

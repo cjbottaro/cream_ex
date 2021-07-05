@@ -16,52 +16,26 @@ defmodule Cream.Connection do
 
   ## Reconnecting
 
-  This uses the awesome `Connection` behaviour and also "active" sockets, which
-  means a few things...
+  `Cream.Connection` uses the awesome `Connection` behaviour and also "active"
+  sockets, which means a few things...
   1. `start_link/1` will typically always succeed.
   1. Disconnections are detected immediately.
-  1. Reconnections are retried indefinitely.
+  1. (Re)connections are retried indefinitely.
 
   While a connection is in a disconnected state, any operations on the
   connection will result in `{:error, :not_connected}`.
 
-  ## Coders
+  ## Value serialization
 
-  Coders serialize and deserialize item values. They are also responsible for
-  setting flags on items.
+  Coders serialize and deserialize values. They are also responsible for setting
+  flags on values.
 
-  Let's make a simple JSON coder.
-
-  ```
-  defmodule JsonCoder do
-    @behaviour Cream.Coder
-    use Bitwise
-
-    def encode(value, flags) when is_map(value) do
-      value = Jason.encode!(value)
-      flags = flags &&& 0x1
-      {:ok, value, flags}
-    end
-
-    def encode(value, flags) do
-      flags = flags &&& 0x0
-      {:ok, value, flags}
-    end
-
-    def decode(value, flags) when flags &&& 0x1 do
-      {:ok, Jason.decode!(value)}
-    end
-
-    def decode(value, flags) do
-      {:ok, value}
-    end
-  end
-  ```
+  See `Cream.Coder` for more info.
   """
 
   use Connection
   require Logger
-  alias Cream.{Protocol}
+  alias Cream.{Protocol, Coder}
 
   @typedoc """
   A connection.
@@ -170,11 +144,14 @@ defmodule Cream.Connection do
 
   ## Options
 
-  * `ttl` (`integer`) - Apply time to live (expiry) to the item. Default `nil`.
+  * `ttl` (`integer | nil`) - Apply time to live (expiry) to the item. Default
+    `nil`.
   * `return_cas` (`boolean`) - Return cas value in result. Default `false`.
+  * `coder` (`atom | nil`) - Use a `Cream.Coder` on value. Overrides the config
+    used by `start_link/1`. Default `nil`.
 
-  If `ttl` is set explicitly on the item, that will take precedence over
-  the `ttl` specified in `opts`.
+  If `ttl` is set explicitly on the item, that will take precedence over the
+  `ttl` specified in `opts`.
 
   ## Examples
 
@@ -354,8 +331,9 @@ defmodule Cream.Connection do
     %{socket: socket} = state
 
     {key, value, ttl, cas} = item
+    coder = opts[:coder] || state.coder
 
-    with {:ok, value, flags} <- encode(value, state),
+    with {:ok, value, flags} <- encode(value, coder),
       packet = Protocol.set({key, value, ttl, cas, flags}),
       :ok <- :inet.setopts(socket, active: false),
       :ok <- :gen_tcp.send(socket, packet),
@@ -379,6 +357,7 @@ defmodule Cream.Connection do
     %{socket: socket} = state
 
     packet = Protocol.get(key)
+    coder = opts[:coder] || state.coder
 
     with :ok <- :inet.setopts(socket, active: false),
       :ok <- :gen_tcp.send(socket, packet),
@@ -387,7 +366,7 @@ defmodule Cream.Connection do
     do
       case packet.status do
         :ok ->
-          with {:ok, value} <- decode(packet.value, packet.extras.flags, state) do
+          with {:ok, value} <- decode(packet.value, packet.extras.flags, coder) do
             if opts[:return_cas] do
               {:reply, {:ok, value, packet.cas}, state}
             else
@@ -422,14 +401,17 @@ defmodule Cream.Connection do
     {:disconnect, :tcp_closed, state}
   end
 
-  defp encode(value, %{coder: nil}), do: {:ok, value, 0}
-  defp encode(value, %{coder: coder}) do
-    {coder.encode(value), 0}
+  defp encode(value, nil), do: {:ok, value, 0}
+  defp encode(value, coder) do
+    Coder.encode(coder, value, 0)
   end
 
-  defp decode(value, _flags, %{coder: nil}), do: {:ok, value}
-  defp decode(value, flags, %{coder: coder}) do
-    coder.decode(value, flags)
+  defp decode(value, _flags, nil), do: {:ok, value}
+  defp decode(value, flags, coders) when is_list(coders) do
+    Enum.reverse(coders) |> Coder.decode(value, flags)
+  end
+  defp decode(value, flags, coder) do
+    Coder.decode(coder, value, flags)
   end
 
 end

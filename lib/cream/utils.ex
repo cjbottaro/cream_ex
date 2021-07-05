@@ -1,4 +1,5 @@
 defmodule Cream.Utils do
+  @moduledoc false
 
   def normalize_item(item, opts \\ [])
 

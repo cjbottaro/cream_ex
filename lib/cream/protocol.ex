@@ -1,4 +1,5 @@
 defmodule Cream.Protocol do
+  @moduledoc false
 
   @request  0x80
   @response 0x81
