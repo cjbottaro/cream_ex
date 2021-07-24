@@ -19,9 +19,8 @@ defmodule Cream.Mixfile do
       ],
 
      docs: [
-       main: "readme",
+       main: "Cream.Client",
        extras: [
-         "README.md": [title: "README"],
          "CHANGELOG.md": [title: "CHANGELOG"]
        ],
        groups_for_modules: [

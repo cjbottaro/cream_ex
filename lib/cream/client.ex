@@ -2,10 +2,13 @@ defmodule Cream.Client do
   @moduledoc """
   Pooled connections to a Memcached server or cluster.
 
-  This is usually what you want instead of `Cream.Connection`, even if you have
-  just a single Memcached server.
+  `NimblePool` is used for connection pooling (lazy by default).
 
-  `Cream.Client` uses `NimblePool` for connection pooling (lazy by default).
+  ## Quickstart
+
+      {:ok, client} = Cream.Client.start_link()
+      :ok = Cream.Client.set(client, {"foo", "bar"})
+      {:ok, "bar"} = Cream.Client.get(client, "foo")
 
   ## Global configuration
 
@@ -21,17 +24,22 @@ defmodule Cream.Client do
   ]
   ```
 
-  Now every single client will use those servers unless overwritten by an
-  argument passed to `start_link/1` or `child_spec/1`.
+  Now _every_ client will use those servers unless overwritten by an argument
+  passed to `start_link/1` or `child_spec/1`.
 
   ## Using as a module
 
-  You can `use Cream.Config` for a higher level of convenience.
+  You can `use Cream.Client` for a higher level of convenience.
 
   ```
   def MyClient do
     use Cream.Client, coder: Cream.Coder.Jason
   end
+  ```
+
+  Configure with `Config`...
+  ```
+  config :my_app, MyClient, servers: ["cache.myapp.com"]
   ```
 
   Start it directly...
