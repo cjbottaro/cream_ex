@@ -21,8 +21,8 @@ defmodule Cream.Client do
   ]
   ```
 
-  Now every single client will those servers unless overwritten by an argument
-  passed to `start_link/1` or `child_spec/1`.
+  Now every single client will use those servers unless overwritten by an
+  argument passed to `start_link/1` or `child_spec/1`.
 
   ## Using as a module
 
