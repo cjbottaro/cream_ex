@@ -61,7 +61,7 @@ defmodule Cream.Cluster do
     if errors == %{} do
       :ok
     else
-      {:errors, errors}
+      {:error, errors}
     end
   end
 
