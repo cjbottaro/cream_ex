@@ -1,4 +1,4 @@
-defmodule Coder.Test do
+defmodule CoderTest do
   use ExUnit.Case
 
   alias Cream.Coder

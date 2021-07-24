@@ -1,8 +1,5 @@
-use Mix.Config
+import Config
 
-config :cream, Test.Cluster,
-  servers: ["localhost:11201", "localhost:11202", "localhost:11203"],
-  memcachex: [coder: Memcache.Coder.JSON]
+config :cream, TestClient, coder: Cream.Coder.Jason
 
-config :logger,
-  level: :info
+config :logger, :level, :info

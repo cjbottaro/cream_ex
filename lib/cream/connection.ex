@@ -260,7 +260,7 @@ defmodule Cream.Connection do
     state = %{
       config: config,
       socket: nil,
-      coder: nil,
+      coder: config[:coder],
       errors: 0,
     }
 
@@ -336,7 +336,7 @@ defmodule Cream.Connection do
     %{socket: socket} = state
 
     {key, value, ttl, cas} = item
-    coder = opts[:coder] || state.coder
+    coder = resolve_coder(opts, state)
 
     with {:ok, value, flags} <- encode(value, coder),
       packet = Protocol.set({key, value, ttl, cas, flags}),
@@ -362,7 +362,7 @@ defmodule Cream.Connection do
     %{socket: socket} = state
 
     packet = Protocol.get(key)
-    coder = opts[:coder] || state.coder
+    coder = resolve_coder(opts, state)
 
     with :ok <- :inet.setopts(socket, active: false),
       :ok <- :gen_tcp.send(socket, packet),
@@ -404,6 +404,14 @@ defmodule Cream.Connection do
 
   def handle_info({:tcp_closed, _socket}, state) do
     {:disconnect, :tcp_closed, state}
+  end
+
+  defp resolve_coder(opts, state) do
+    if Keyword.has_key?(opts, :coder) do
+      opts[:coder]
+    else
+      state.coder
+    end
   end
 
   defp encode(value, nil), do: {:ok, value, 0}

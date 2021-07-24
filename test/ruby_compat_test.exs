@@ -14,7 +14,7 @@ defmodule RubyCompatTest do
   end
 
   test "no coder", %{cluster: cluster} do
-    Enum.each(1..99, fn i ->
+    Enum.each(0..99, fn i ->
       expected = to_string(i)
       {:ok, ^expected} = Cream.Cluster.get(cluster, "cream_ruby_test_key_#{i}")
 
@@ -24,7 +24,7 @@ defmodule RubyCompatTest do
   end
 
   test "jason coder", %{cluster: cluster} do
-    Enum.each(1..99, fn i ->
+    Enum.each(0..99, fn i ->
       expected = i
       {:ok, ^expected} = Cream.Cluster.get(cluster, "cream_ruby_test_key_#{i}", coder: Coder.Jason)
 

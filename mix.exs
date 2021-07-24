@@ -3,8 +3,8 @@ defmodule Cream.Mixfile do
 
   def project do
     [app: :cream,
-     version: "0.2.0",
-     elixir: "~> 1.4",
+     version: "1.0.0",
+     elixir: "~> 1.0",
      build_embedded: Mix.env == :prod,
      start_permanent: Mix.env == :prod,
      elixirc_paths: elixirc_paths(Mix.env),
@@ -23,6 +23,9 @@ defmodule Cream.Mixfile do
        extras: [
          "README.md": [title: "README"],
          "CHANGELOG.md": [title: "CHANGELOG"]
+       ],
+       groups_for_modules: [
+         "Coders": [Cream.Coder.Gzip, Cream.Coder.Jason]
        ]
      ]
    ]

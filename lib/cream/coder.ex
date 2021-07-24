@@ -41,8 +41,8 @@ defmodule Cream.Coder do
   end
   ```
 
-  Notice we set a bit (`0b1`) on flags to indicate the value is serialized. When
-  the value is not serialized, we unset the bit.
+  Notice we set a the bit `0b1` on flags to indicate the value is serialized.
+  When the value is not serialized, we unset the bit.
 
   Now let's see the coder in action. We use two connections, one that uses the
   coder and one that doesn't.
