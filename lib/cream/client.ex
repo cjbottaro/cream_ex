@@ -166,6 +166,14 @@ defmodule Cream.Client do
     checkout(client, &Cluster.set(&1, item, opts))
   end
 
+  def fetch(client, key, opts \\ [], f) do
+    checkout(client, &Cluster.fetch(&1, key, opts, f))
+  end
+
+  def delete(client, key, opts \\ []) do
+    checkout(client, &Cluster.delete(&1, key, opts))
+  end
+
   def flush(client, opts \\ []) do
     checkout(client, &Cluster.flush(&1, opts))
   end
@@ -243,6 +251,22 @@ defmodule Cream.Client do
 
       def get(key, opts \\ []) do
         Cream.Client.get(__MODULE__, key, opts)
+      end
+
+      def set(item, opts \\ []) do
+        Cream.Client.set(__MODULE__, item, opts)
+      end
+
+      def fetch(key, opts \\ [], f) do
+        Cream.Client.fetch(__MODULE__, key, opts, f)
+      end
+
+      def delete(key, opts \\ []) do
+        Cream.Client.delete(__MODULE__, key, opts)
+      end
+
+      def flush(opts \\ []) do
+        Cream.Client.flush(__MODULE__, opts)
       end
 
       defp config_config do

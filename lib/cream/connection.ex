@@ -144,6 +144,11 @@ defmodule Cream.Connection do
     Connection.call(conn, {:flush, opts})
   end
 
+  @spec delete(t, binary, Keyword.t) :: :ok | {:error, reason}
+  def delete(conn, key, opts \\ []) do
+    Connection.call(conn, {:delete, key, opts})
+  end
+
   @doc """
   Set a single item.
 
@@ -230,6 +235,35 @@ defmodule Cream.Connection do
       end
 
       result -> result
+    end
+  end
+
+  @doc """
+  Get a key and set its value if it doesn't exist.
+
+  If `key` doesn't exist, then `f` is used to generate its value and set it on the server.
+
+      :ok = flush(conn)
+      {:ok, nil} = get("foo")
+      {:ok, "bar"} = fetch(conn, "foo", fn -> "bar" end)
+      {:ok, "bar"} = get("foo")
+
+  `set` options will be used if the key doesn't exist. `get` options should work regardless.
+  """
+  @spec fetch(t, binary, Keyword.t, (-> term)) :: {:ok, term} | {:ok, term, cas} | {:error, reason}
+  def fetch(conn, key, options \\ [], f) do
+    case get(conn, key, Keyword.put(options, :verbose, true)) do
+      {:ok, value} -> {:ok, value}
+      {:ok, value, cas} -> {:ok, value, cas}
+      {:error, :not_found} ->
+        value = f.()
+        case set(conn, {key, value}, options) do
+          :ok -> {:ok, value}
+          {:ok, cas} -> {:ok, value, cas}
+          error -> error
+        end
+
+      error -> error
     end
   end
 
@@ -325,6 +359,28 @@ defmodule Cream.Connection do
     do
       case packet.status do
         :ok -> {:reply, :ok, state}
+        error -> {:reply, {:error, error}, state}
+      end
+    else
+      {:error, reason} -> {:disconnect, reason, state}
+    end
+  end
+
+  def handle_call({:delete, key, options}, _from, state) do
+    %{socket: socket} = state
+
+    with :ok <- :inet.setopts(socket, active: false),
+      :ok <- :gen_tcp.send(socket, Protocol.delete(key)),
+      {:ok, packet} <- Protocol.recv_packet(socket),
+      :ok <- :inet.setopts(socket, active: true)
+    do
+      case packet.status do
+        :ok -> {:reply, :ok, state}
+        :not_found -> if options[:verbose] do
+          {:reply, {:error, :not_found}, state}
+        else
+          {:reply, :ok, state}
+        end
         error -> {:reply, {:error, error}, state}
       end
     else

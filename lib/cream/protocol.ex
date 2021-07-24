@@ -4,14 +4,15 @@ defmodule Cream.Protocol do
   @request  0x80
   @response 0x81
 
-  @get   0x00
-  @set   0x01
-  @flush 0x08
-  @getq  0x09
-  @noop  0x0a
-  @getk  0x0c
-  @getkq 0x0d
-  @setq  0x11
+  @get    0x00
+  @set    0x01
+  @delete 0x04
+  @flush  0x08
+  @getq   0x09
+  @noop   0x0a
+  @getk   0x0c
+  @getkq  0x0d
+  @setq   0x11
 
   [
     {0x0000, :ok},
@@ -68,6 +69,23 @@ defmodule Cream.Protocol do
       <<0x00::bytes(4)>>,
       <<0x00::bytes(8)>>,
       <<expiry::bytes(4)>>
+    ]
+  end
+
+  def delete(key) do
+    key_size = byte_size(key)
+
+    [
+      <<@request::bytes(1)>>,
+      <<@delete::bytes(1)>>,
+      <<key_size::bytes(2)>>,
+      <<0x00::bytes(1)>>,
+      <<0x00::bytes(1)>>,
+      <<0x00::bytes(2)>>,
+      <<key_size::bytes(4)>>,
+      <<0x00::bytes(4)>>,
+      <<0x00::bytes(8)>>,
+      key
     ]
   end
 

@@ -31,6 +31,33 @@ defmodule ConnectionTest do
     assert is_integer(cas)
   end
 
+  test "delete", %{conn: conn} do
+    {:error, :not_found} = Connection.delete(conn, "foo", verbose: true)
+    :ok = Connection.delete(conn, "foo")
+
+    :ok = Connection.set(conn, {"foo", "bar"})
+    {:ok, "bar"} = Connection.get(conn, "foo")
+    :ok = Connection.delete(conn, "foo", verbose: true)
+    {:error, :not_found} = Connection.get(conn, "foo", verbose: true)
+    {:error, :not_found} = Connection.delete(conn, "foo", verbose: true)
+
+    :ok = Connection.set(conn, {"foo", "bar"})
+    {:ok, "bar"} = Connection.get(conn, "foo")
+    :ok = Connection.delete(conn, "foo")
+    {:error, :not_found} = Connection.get(conn, "foo", verbose: true)
+    {:error, :not_found} = Connection.delete(conn, "foo", verbose: true)
+  end
+
+  test "fetch", %{conn: conn} do
+    {:error, :not_found} = Connection.get(conn, "foo", verbose: true)
+    {:ok, "bar"} = Connection.fetch(conn, "foo", fn -> "bar" end)
+    {:ok, "bar"} = Connection.get(conn, "foo")
+
+    :ok = Connection.set(conn, {"foo", "baz"})
+    {:ok, "baz"} = Connection.fetch(conn, "foo", fn -> "bar" end)
+    {:ok, "baz"} = Connection.get(conn, "foo")
+  end
+
   # Note that this uses Cream.Coder.Json which is different from
   # Cream.Coder.Jason and only exists in test env.
   test "single coder", %{conn: conn} do

@@ -37,6 +37,16 @@ defmodule Cream.Cluster do
     |> Cream.Connection.get(key, opts)
   end
 
+  def fetch(cluster, key, opts \\ [], f) do
+    find_conn(cluster, key)
+    |> Cream.Connection.fetch(key, opts, f)
+  end
+
+  def delete(cluster, key, opts \\ []) do
+    find_conn(cluster, key)
+    |> Cream.Connection.delete(key, opts)
+  end
+
   def flush(cluster, opts \\ []) do
     errors = cluster.servers
     |> Enum.with_index()
