@@ -40,7 +40,7 @@ defmodule Cream.Connection do
 
   use Connection
   require Logger
-  alias Cream.{Protocol, Coder}
+  alias Cream.{Protocol, Coder, Error, ConnectionError}
 
   @typedoc """
   A connection.
@@ -112,13 +112,26 @@ defmodule Cream.Connection do
 
   Note that this will typically _always_ return `{:ok conn}`, even if the actual
   TCP connection failed. If that is the case, subsequent uses of the connection
-  will return `{:error, :not_connected}`.
+  will return `{:error, %Cream.ConnectionError{}}`.
 
-  ```
-  {:ok, conn} = #{inspect __MODULE__}.start_link()
+      # Connect to localhost:11211
 
-  {:ok, conn} = #{inspect __MODULE__}.start_link(server: "memcache.foo.com:11211")
-  ```
+      iex> start_link()
+      {:ok, conn}
+
+      # Connect to a specific server
+
+      iex> start_link(server: "memcache.foo.com:11211")
+      {:ok, conn}
+
+      # Connection error
+
+      iex> start_link(server: "localhost:99899")
+      {:ok, conn}
+
+      iex> get(conn, "foo")
+      {:error, %Cream.Error{reason: :econnrefused, server: "localhost:99899"}}
+
   """
   @spec start_link(Keyword.t) :: {:ok, t} | {:error, reason}
   def start_link(config \\ []) do
@@ -129,24 +142,48 @@ defmodule Cream.Connection do
   @doc """
   Clear all keys.
 
-  ```
-  # Flush immediately
-  iex(1)> #{inspect __MODULE__}.flush(conn)
-  :ok
+      # Flush immediately
+      iex> #{inspect __MODULE__}.flush(conn)
+      :ok
 
-  # Flush after 60 seconds
-  iex(1)> #{inspect __MODULE__}.flush(conn, ttl: 60)
-  :ok
-  ```
+      # Flush after 60 seconds
+      iex> #{inspect __MODULE__}.flush(conn, ttl: 60)
+      :ok
+
   """
-  @spec flush(t, Keyword.t) :: :ok | {:error, reason}
+  @spec flush(t, Keyword.t) :: :ok | {:error, Error.t} | {:error, ConnectionError.t}
   def flush(conn, opts \\ []) do
-    Connection.call(conn, {:flush, opts})
+    case Connection.call(conn, {:flush, opts}) do
+      {:ok, packet} -> case packet.status do
+        :ok -> :ok
+        reason -> {:error, Error.exception(reason)}
+      end
+      %ConnectionError{} = conn_error -> {:error, conn_error}
+    end
   end
 
-  @spec delete(t, binary, Keyword.t) :: :ok | {:error, reason}
+  @doc """
+  Delete a key.
+
+      iex> delete(conn, "foo")
+      :ok
+
+      iex> delete(conn, "foo", verbose: true)
+      {:error, %Cream.Error{reason: :not_found}}
+
+  """
+  @spec delete(t, binary, Keyword.t) :: :ok | {:error, Error.t} | {:error, ConnectionError.t}
   def delete(conn, key, opts \\ []) do
-    Connection.call(conn, {:delete, key, opts})
+    case Connection.call(conn, {:delete, key}) do
+      {:ok, %{status: :ok}} -> :ok
+      {:ok, %{status: :not_found}} -> if opts[:verbose] do
+        {:error, Error.exception(:not_found)}
+      else
+        :ok
+      end
+      {:error, %ConnectionError{} = conn_error} -> {:error, conn_error}
+      {:error, reason} -> {:error, Error.exception(reason)}
+    end
   end
 
   @doc """
@@ -154,51 +191,56 @@ defmodule Cream.Connection do
 
   ## Options
 
-  * `ttl` (`integer | nil`) - Apply time to live (expiry) to the item. Default
-    `nil`.
-  * `return_cas` (`boolean`) - Return cas value in result. Default `false`.
-  * `coder` (`atom | nil`) - Use a `Cream.Coder` on value. Overrides the config
+  * `:cas` - `(boolean)` - Return cas value in result. Default `false`.
+  * `:coder` - `(atom|nil)` - Use a `Cream.Coder` on value. Overrides the config
     used by `start_link/1`. Default `nil`.
 
-  If `ttl` is set explicitly on the item, that will take precedence over the
-  `ttl` specified in `opts`.
+  `:ttl` on the item is in seconds. See `t:item/0` for more info.
 
   ## Examples
 
-  ```
-  # Basic set
-  iex(1)> set(conn, {"foo", "bar"})
-  :ok
+      # Basic set
+      iex> set(conn, {"foo", "bar"})
+      :ok
 
-  # Use ttl on item.
-  iex(1)> set(conn, {"foo", "bar", ttl: 60})
-  :ok
+      # Use ttl.
+      iex> set(conn, {"foo", "bar", ttl: 60})
+      :ok
 
-  # Use ttl from opts.
-  iex(1)> set(conn, {"foo", "bar"}, ttl: 60)
-  :ok
+      # Set using cas.
+      iex> set(conn, {"foo", "bar", cas: 122})
+      :ok
 
-  # Return cas value.
-  iex(1)> set(conn, {"foo", "bar"}, return_cas: true)
-  {:ok, 123}
+      # Return cas value.
+      iex> set(conn, {"foo", "bar"}, cas: true)
+      {:ok, 123}
 
-  # Set using bad cas value results in error.
-  iex(1)> set(conn, {"foo", "bar", cas: 124})
-  {:error, :exists}
+      # Set using bad cas value results in error.
+      iex> set(conn, {"foo", "bar", cas: 124})
+      {:error, %Cream.Error{reason: :exists}}
 
-  # Set using cas value and return new cas value.
-  iex(1)> set(conn, {"foo", "bar", cas: 123}, return_cas: true)
-  {:ok, 124}
+      # Set using cas value and return new cas value.
+      iex> set(conn, {"foo", "bar", cas: 123}, cas: true)
+      {:ok, 124}
 
-  # Set using cas.
-  iex(1)> set(conn, {"foo", "bar", cas: 124})
-  :ok
-  ```
   """
-  @spec set(t, item, Keyword.t) :: :ok | {:ok, cas} | {:error, reason}
+  @spec set(t, item, Keyword.t) :: :ok | {:ok, cas} | {:error, Error.t} | {:error, ConnectionError.t}
   def set(conn, item, opts \\ []) do
-    item = Cream.Utils.normalize_item(item)
-    Connection.call(conn, {:set, item, opts})
+    with {:ok, item} <- Cream.Item.from_args(item),
+      {:ok, conn_coder} <- Connection.call(conn, :get_coder),
+      {:ok, item} <- encode(item, opts[:coder], conn_coder),
+      {:ok, %{status: :ok} = packet} <- Connection.call(conn, {:set, item})
+    do
+      if opts[:cas] do
+        {:ok, packet.cas}
+      else
+        :ok
+      end
+    else
+      {:ok, %{status: status}} -> {:error, Error.exception(status)}
+      {:error, %ConnectionError{} = conn_error} -> {:error, conn_error}
+      {:error, reason} -> {:error, Error.exception(reason)}
+    end
   end
 
   @doc """
@@ -206,35 +248,44 @@ defmodule Cream.Connection do
 
   ## Options
 
-  * `verbose` (boolean, default false) Missing value will return `{:error, :not_found}`.
-  * `cas` (boolean, default false) Return cas value in result.
+  * `:verbose` - `(boolean)` - If `true`, missing keys will return an error. If
+    `false`, missing keys will return `nil`. Default `false`.
+  * `:cas` - `(boolean)` - Return cas value in result. Default `false`.
 
   ## Examples
 
-  ```
-  iex(1)> get(conn, "foo")
-  {:ok, nil}
+      iex> get(conn, "foo")
+      {:ok, nil}
 
-  iex(1)> get(conn, "foo", verbose: true)
-  {:error, :not_found}
+      iex> get(conn, "foo", verbose: true)
+      {:error, %Cream.Error{reason: :not_found}}
 
-  iex(1)> get(conn, "name")
-  {:ok, "Callie"}
+      iex> get(conn, "name")
+      {:ok, "Callie"}
 
-  iex(1)> get(conn, "name", return_cas: true)
-  {:ok, "Callie", 123}
-  ```
+      iex> get(conn, "name", cas: true)
+      {:ok, "Callie", 123}
+
   """
-  @spec get(t, binary, Keyword.t) :: {:ok, term} | {:ok, term, cas} | {:error, reason}
-  def get(conn, key, options \\ []) do
-    case Connection.call(conn, {:get, key, options}) do
-      {:error, :not_found} = result -> if options[:verbose] do
-        result
+  @spec get(t, binary, Keyword.t) :: {:ok, term} | {:ok, term, cas} | {:error, Error.t} | {:error, ConnectionError.t}
+  def get(conn, key, opts \\ []) do
+    with {:ok, %{status: :ok} = packet, coder} <- Connection.call(conn, {:get, key}),
+      {:ok, value} <- decode(packet, opts[:coder], coder)
+    do
+      if opts[:cas] do
+        {:ok, value, packet.cas}
+      else
+        {:ok, value}
+      end
+    else
+      {:ok, %{status: :not_found}, _coder} -> if opts[:verbose] do
+        {:error, Error.exception(:not_found)}
       else
         {:ok, nil}
       end
-
-      result -> result
+      {:ok, %{status: reason}, _coder} -> {:error, Error.exception(reason)}
+      {:error, %ConnectionError{} = conn_error} -> {:error, conn_error}
+      {:error, reason} -> {:error, Error.exception(reason)}
     end
   end
 
@@ -243,21 +294,23 @@ defmodule Cream.Connection do
 
   If `key` doesn't exist, then `f` is used to generate its value and set it on the server.
 
-      :ok = flush(conn)
-      {:ok, nil} = get("foo")
-      {:ok, "bar"} = fetch(conn, "foo", fn -> "bar" end)
-      {:ok, "bar"} = get("foo")
+      iex> :ok = flush(conn)
+      iex> {:ok, nil} = get(conn, "foo")
+      iex> {:ok, "bar"} = fetch(conn, "foo", fn -> "bar" end)
+      iex> {:ok, "bar"} = get(conn, "foo")
 
-  `set` options will be used if the key doesn't exist. `get` options should work regardless.
+  `set/3` options will be used if the key doesn't exist.
+
+  `get/3` options will always be used.
   """
-  @spec fetch(t, binary, Keyword.t, (-> term)) :: {:ok, term} | {:ok, term, cas} | {:error, reason}
-  def fetch(conn, key, options \\ [], f) do
-    case get(conn, key, Keyword.put(options, :verbose, true)) do
+  @spec fetch(t, binary, Keyword.t, (-> term)) :: {:ok, term} | {:ok, term, cas} | {:error, Error.t} | {:error, ConnectionError.t}
+  def fetch(conn, key, opts \\ [], f) do
+    case get(conn, key, Keyword.put(opts, :verbose, true)) do
       {:ok, value} -> {:ok, value}
       {:ok, value, cas} -> {:ok, value, cas}
-      {:error, :not_found} ->
+      {:error, %Error{reason: :not_found}} ->
         value = f.()
-        case set(conn, {key, value}, options) do
+        case set(conn, {key, value}, opts) do
           :ok -> {:ok, value}
           {:ok, cas} -> {:ok, value, cas}
           error -> error
@@ -271,22 +324,23 @@ defmodule Cream.Connection do
   Send a noop command to server.
 
   You can use this to see if you are connected to the server.
-  ```
-  iex(1)> noop(conn)
-  :ok
 
-  iex(1)> noop(conn)
-  {:error, :not_connected}
-  ```
+      iex> noop(conn)
+      :ok
+
+      iex> noop(conn)
+      {:error, %Cream.Error{reason: :econnrefused, server: "localhost:11211"}}
+
   """
-  @spec noop(t) :: :ok | {:error, reason}
+  @spec noop(t) :: :ok | {:error, Error.t} | {:error, ConnectionError.t}
   def noop(conn) do
     case Connection.call(conn, :noop) do
       {:ok, packet} -> case packet do
         %{status: :ok} -> :ok
-        %{status: reason} -> {:error, reason}
+        %{status: reason} -> {:error, Error.exception(reason)}
       end
-      error -> error
+      {:error, %ConnectionError{} = conn_error} -> {:error, conn_error}
+      {:error, reason} -> {:error, Error.exception(reason)}
     end
   end
 
@@ -295,7 +349,8 @@ defmodule Cream.Connection do
       config: config,
       socket: nil,
       coder: config[:coder],
-      errors: 0,
+      err_reason: nil,
+      err_count: 0,
     }
 
     {:connect, :init, state}
@@ -318,16 +373,16 @@ defmodule Cream.Connection do
           %{usec: System.monotonic_time(:microsecond) - start},
           %{context: context, server: server}
         )
-        {:ok, %{state | socket: socket, errors: 0}}
+        {:ok, %{state | socket: socket, err_count: 0}}
 
       {:error, reason} ->
-        errors = state.errors + 1
+        count = state.err_count + 1
         :telemetry.execute(
           [:cream, :connection, :error],
           %{usec: System.monotonic_time(:microsecond) - start},
-          %{context: context, reason: reason, server: server, count: errors}
+          %{context: context, reason: reason, server: server, count: count}
         )
-        {:backoff, 1000, %{state | errors: errors}}
+        {:backoff, 1000, %{state | err_reason: reason, err_count: count}}
     end
   end
 
@@ -345,11 +400,16 @@ defmodule Cream.Connection do
     {:connect, reason, %{state | socket: nil}}
   end
 
-  def handle_call(_command, _from, state) when is_nil(state.socket) do
-    {:reply, {:error, :not_connected}, state}
+  def handle_call(:get_coder, _from, state) do
+    {:reply, {:ok, state.coder}, state}
   end
 
-  def handle_call({:flush, options}, _from, state) do
+  def handle_call(_command, _from, state) when is_nil(state.socket) do
+    error = ConnectionError.exception(state.err_reason, state.config[:server])
+    {:reply, {:error, error}, state}
+  end
+
+  def handle_call({:flush, options}, from, state) do
     %{socket: socket} = state
 
     with :ok <- :inet.setopts(socket, active: false),
@@ -357,16 +417,13 @@ defmodule Cream.Connection do
       {:ok, packet} <- Protocol.recv_packet(socket),
       :ok <- :inet.setopts(socket, active: true)
     do
-      case packet.status do
-        :ok -> {:reply, :ok, state}
-        error -> {:reply, {:error, error}, state}
-      end
+      {:reply, {:ok, packet}, state}
     else
-      {:error, reason} -> {:disconnect, reason, state}
+      {:error, reason} -> handle_conn_error(reason, from, state)
     end
   end
 
-  def handle_call({:delete, key, options}, _from, state) do
+  def handle_call({:delete, key}, from, state) do
     %{socket: socket} = state
 
     with :ok <- :inet.setopts(socket, active: false),
@@ -374,73 +431,41 @@ defmodule Cream.Connection do
       {:ok, packet} <- Protocol.recv_packet(socket),
       :ok <- :inet.setopts(socket, active: true)
     do
-      case packet.status do
-        :ok -> {:reply, :ok, state}
-        :not_found -> if options[:verbose] do
-          {:reply, {:error, :not_found}, state}
-        else
-          {:reply, :ok, state}
-        end
-        error -> {:reply, {:error, error}, state}
-      end
+      {:reply, {:ok, packet}, state}
     else
-      {:error, reason} -> {:disconnect, reason, state}
+      {:error, reason} -> handle_conn_error(reason, from, state)
     end
   end
 
-  def handle_call({:set, item, opts}, _from, state) do
+  def handle_call({:set, item}, from, state) do
     %{socket: socket} = state
 
-    {key, value, ttl, cas} = item
-    coder = resolve_coder(opts, state)
-
-    with {:ok, value, flags} <- encode(value, coder),
-      packet = Protocol.set({key, value, ttl, cas, flags}),
-      :ok <- :inet.setopts(socket, active: false),
-      :ok <- :gen_tcp.send(socket, packet),
-      {:ok, packet} <- Protocol.recv_packet(socket),
-      :ok <- :inet.setopts(socket, active: true)
-    do
-      case packet.status do
-        :ok -> if opts[:return_cas] do
-          {:reply, {:ok, packet.cas}, state}
-        else
-          {:reply, :ok, state}
-        end
-        error -> {:reply, {:error, error}, state}
-      end
-    else
-      {:error, reason} -> {:disconnect, reason, state}
-    end
-  end
-
-  def handle_call({:get, key, opts}, _from, state) do
-    %{socket: socket} = state
-
-    packet = Protocol.get(key)
-    coder = resolve_coder(opts, state)
+    packet = Protocol.set(item)
 
     with :ok <- :inet.setopts(socket, active: false),
       :ok <- :gen_tcp.send(socket, packet),
       {:ok, packet} <- Protocol.recv_packet(socket),
       :ok <- :inet.setopts(socket, active: true)
     do
-      case packet.status do
-        :ok ->
-          with {:ok, value} <- decode(packet.value, packet.extras.flags, coder) do
-            if opts[:return_cas] do
-              {:reply, {:ok, value, packet.cas}, state}
-            else
-              {:reply, {:ok, value}, state}
-            end
-          else
-            {:error, reason} -> {:reply, {:error, reason}, state}
-          end
-
-        reason -> {:reply, {:error, reason}, state}
-      end
+      {:reply, {:ok, packet}, state}
     else
-      {:error, reason} -> {:disconnect, reason, state}
+      {:error, reason} -> handle_conn_error(reason, from, state)
+    end
+  end
+
+  def handle_call({:get, key}, from, state) do
+    %{socket: socket, coder: coder} = state
+
+    packet = Protocol.get(key)
+
+    with :ok <- :inet.setopts(socket, active: false),
+      :ok <- :gen_tcp.send(socket, packet),
+      {:ok, packet} <- Protocol.recv_packet(socket),
+      :ok <- :inet.setopts(socket, active: true)
+    do
+      {:reply, {:ok, packet, coder}, state}
+    else
+      {:error, reason} -> handle_conn_error(reason, from, state)
     end
   end
 
@@ -462,25 +487,34 @@ defmodule Cream.Connection do
     {:disconnect, :tcp_closed, state}
   end
 
-  defp resolve_coder(opts, state) do
-    if Keyword.has_key?(opts, :coder) do
-      opts[:coder]
-    else
-      state.coder
+  defp handle_conn_error(reason, from, %{config: config} = state) do
+    error = ConnectionError.exception(reason: reason, server: config[:server])
+    :ok = GenServer.reply(from, {:error, error})
+    {:disconnect, reason, state}
+  end
+
+  defp encode(%Cream.Item{} = item, opts_coder, conn_coder) do
+    result = case {opts_coder, conn_coder} do
+      {false, _} -> :noop
+      {nil, nil} -> :noop
+      {coder, _} when coder != nil -> Coder.encode(coder, item.value, item.flags)
+      {_, coder} when coder != nil -> Coder.encode(coder, item.value, item.flags)
+    end
+
+    case result do
+      :noop -> {:ok, item}
+      {:ok, value, flags} -> {:ok, %{item | value: value, flags: flags}}
+      error -> error
     end
   end
 
-  defp encode(value, nil), do: {:ok, value, 0}
-  defp encode(value, coder) do
-    Coder.encode(coder, value, 0)
-  end
-
-  defp decode(value, _flags, nil), do: {:ok, value}
-  defp decode(value, flags, coders) when is_list(coders) do
-    Enum.reverse(coders) |> Coder.decode(value, flags)
-  end
-  defp decode(value, flags, coder) do
-    Coder.decode(coder, value, flags)
+  defp decode(packet, opts_coder, conn_coder) do
+    case {opts_coder, conn_coder} do
+      {false, _} -> {:ok, packet.value}
+      {nil, nil} -> {:ok, packet.value}
+      {coder, _} when coder != nil -> Coder.decode(coder, packet.value, packet.extras.flags)
+      {_, coder} when coder != nil -> Coder.decode(coder, packet.value, packet.extras.flags)
+    end
   end
 
 end

@@ -89,7 +89,9 @@ defmodule Cream.Protocol do
     ]
   end
 
-  def set({key, value, ttl, cas, flags}) do
+  def set(item) do
+    %{key: key, value: value, ttl: ttl, cas: cas, flags: flags} = item
+
     key_size = byte_size(key)
     value_size = byte_size(value)
     body_size = key_size + value_size + 8
