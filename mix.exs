@@ -64,8 +64,6 @@ defmodule Cream.Mixfile do
       {:connection, "~> 1.0"},
       {:nimble_pool, "~> 0.0"},
       {:jason, "~> 1.0", only: [:dev, :test]},
-      # {:kestrel, "~> 0.0", git: "https://github.com/cjbottaro/kestrel_ex", only: [:dev, :test]},
-      {:kestrel, "~> 0.0", path: "~/Projects/kestrel_ex", only: [:dev, :test]},
       {:ex_doc, "~> 0.0", only: :dev},
     ]
   end
