@@ -1,11 +1,11 @@
 require "dalli"
 require "json"
 
-servers = [
-  "localhost:11201",
-  "localhost:11202",
-  "localhost:11203"
-]
+containers = JSON.parse(`docker compose ps --format json`)
+servers = containers.sort_by{ |c| c["Name"] }.map do |c|
+  port = c["Publishers"][0]["PublishedPort"]
+  "localhost:#{port}"
+end
 
 client = Dalli::Client.new(servers, serializer: JSON)
 

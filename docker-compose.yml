@@ -2,17 +2,20 @@ version: "3"
 
 services:
 
-  memcached_01:
+  memcached-1:
+    container_name: cream-ex-memcached-1
     image: memcached:alpine
     ports:
-      - 11201:11211
+      - 11211
 
-  memcached_02:
+  memcached-2:
+    container_name: cream-ex-memcached-2
     image: memcached:alpine
     ports:
-      - 11202:11211
+      - 11211
 
-  memcached_03:
+  memcached-3:
+    container_name: cream-ex-memcached-3
     image: memcached:alpine
     ports:
-      - 11203:11211
+      - 11211

@@ -241,9 +241,13 @@ defmodule Cream.Client do
       @config unquote(config)
 
       def config do
-        Cream.Client.config()
-        |> Keyword.merge(@config)
-        |> Keyword.merge(config_config())
+        base_config = Application.get_env(:cream, Cream.Client, [])
+        this_config = Application.get_application(__MODULE__)
+        |> Application.get_env(__MODULE__, [])
+
+        @config
+        |> Keyword.merge(base_config)
+        |> Keyword.merge(this_config)
       end
 
       def child_spec(config \\ []) do

@@ -226,9 +226,14 @@ defmodule Cream.Connection do
   """
   @spec set(t, item, Keyword.t) :: :ok | {:ok, cas} | {:error, Error.t} | {:error, ConnectionError.t}
   def set(conn, item, opts \\ []) do
+    opts_coder = case opts[:coder] do
+      false -> false
+      coder -> List.wrap(coder)
+    end
+
     with {:ok, item} <- Cream.Item.from_args(item),
-      {:ok, conn_coder} <- Connection.call(conn, :get_coder),
-      {:ok, item} <- encode(item, opts[:coder], conn_coder),
+      {:ok, conn_coder} <- Connection.call(conn, :get_encoder),
+      {:ok, item} <- encode(item, opts_coder, conn_coder),
       {:ok, %{status: :ok} = packet} <- Connection.call(conn, {:set, item})
     do
       if opts[:cas] do
@@ -269,8 +274,13 @@ defmodule Cream.Connection do
   """
   @spec get(t, binary, Keyword.t) :: {:ok, term} | {:ok, term, cas} | {:error, Error.t} | {:error, ConnectionError.t}
   def get(conn, key, opts \\ []) do
-    with {:ok, %{status: :ok} = packet, coder} <- Connection.call(conn, {:get, key}),
-      {:ok, value} <- decode(packet, opts[:coder], coder)
+    opts_coder = case opts[:coder] do
+      false -> false
+      coder -> List.wrap(coder) |> Enum.reverse()
+    end
+
+    with {:ok, %{status: :ok} = packet, conn_coder} <- Connection.call(conn, {:get, key}),
+      {:ok, value} <- decode(packet, opts_coder, conn_coder)
     do
       if opts[:cas] do
         {:ok, value, packet.cas}
@@ -345,10 +355,14 @@ defmodule Cream.Connection do
   end
 
   def init(config) do
+    encoder = List.wrap(config[:coder])
+    decoder = Enum.reverse(encoder)
+
     state = %{
       config: config,
       socket: nil,
-      coder: config[:coder],
+      encoder: encoder,
+      decoder: decoder,
       err_reason: nil,
       err_count: 0,
     }
@@ -400,8 +414,8 @@ defmodule Cream.Connection do
     {:connect, reason, %{state | socket: nil}}
   end
 
-  def handle_call(:get_coder, _from, state) do
-    {:reply, {:ok, state.coder}, state}
+  def handle_call(:get_encoder, _from, state) do
+    {:reply, {:ok, state.encoder}, state}
   end
 
   def handle_call(_command, _from, state) when is_nil(state.socket) do
@@ -454,7 +468,7 @@ defmodule Cream.Connection do
   end
 
   def handle_call({:get, key}, from, state) do
-    %{socket: socket, coder: coder} = state
+    %{socket: socket, decoder: decoder} = state
 
     packet = Protocol.get(key)
 
@@ -463,7 +477,7 @@ defmodule Cream.Connection do
       {:ok, packet} <- Protocol.recv_packet(socket),
       :ok <- :inet.setopts(socket, active: true)
     do
-      {:reply, {:ok, packet, coder}, state}
+      {:reply, {:ok, packet, decoder}, state}
     else
       {:error, reason} -> handle_conn_error(reason, from, state)
     end
@@ -496,9 +510,9 @@ defmodule Cream.Connection do
   defp encode(%Cream.Item{} = item, opts_coder, conn_coder) do
     result = case {opts_coder, conn_coder} do
       {false, _} -> :noop
-      {nil, nil} -> :noop
-      {coder, _} when coder != nil -> Coder.encode(coder, item.value, item.flags)
-      {_, coder} when coder != nil -> Coder.encode(coder, item.value, item.flags)
+      {[], []} -> :noop
+      {coder, _} when coder != [] -> Coder.encode(coder, item.value, item.flags)
+      {_, coder} when coder != [] -> Coder.encode(coder, item.value, item.flags)
     end
 
     case result do
@@ -511,9 +525,9 @@ defmodule Cream.Connection do
   defp decode(packet, opts_coder, conn_coder) do
     case {opts_coder, conn_coder} do
       {false, _} -> {:ok, packet.value}
-      {nil, nil} -> {:ok, packet.value}
-      {coder, _} when coder != nil -> Coder.decode(coder, packet.value, packet.extras.flags)
-      {_, coder} when coder != nil -> Coder.decode(coder, packet.value, packet.extras.flags)
+      {[], []} -> {:ok, packet.value}
+      {coder, _} when coder != [] -> Coder.decode(coder, packet.value, packet.extras.flags)
+      {_, coder} when coder != [] -> Coder.decode(coder, packet.value, packet.extras.flags)
     end
   end
 

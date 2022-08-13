@@ -121,8 +121,7 @@ defmodule Cream.Coder do
 
   @doc false
   def decode(coders, value, flags) when is_list(coders) do
-    Enum.reverse(coders)
-    |> Enum.reduce_while({:ok, value}, fn coder, {:ok, value} ->
+    Enum.reduce_while(coders, {:ok, value}, fn coder, {:ok, value} ->
       case decode(coder, value, flags) do
         {:ok, value} -> {:cont, {:ok, value}}
         {:error, reason} -> {:halt, {:error, reason}}
