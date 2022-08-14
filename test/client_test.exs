@@ -1,6 +1,6 @@
 defmodule ClientTest do
   use ExUnit.Case
-  alias Cream.Error
+  alias Cream.{Error}
 
   setup_all do
     {:ok, _client} = TestClient.start_link()

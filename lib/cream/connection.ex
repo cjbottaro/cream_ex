@@ -303,20 +303,50 @@ defmodule Cream.Connection do
   end
 
   @doc """
-  Get a key and set its value if it doesn't exist.
+  Read through cache.
 
-  If `key` doesn't exist, then `f` is used to generate its value and set it on the server.
+  If `key` doesn't exist, then `f` is used to generate its value and set it on
+  the server.
 
-      iex> :ok = flush(conn)
-      iex> {:ok, nil} = get(conn, "foo")
-      iex> {:ok, "bar"} = fetch(conn, "foo", fn -> "bar" end)
-      iex> {:ok, "bar"} = get(conn, "foo")
+  It is similar to the following code:
 
-  `set/3` options will be used if the key doesn't exist.
+      case get(conn, key, quiet: false) do
+        {:ok, value} -> {:ok, value}
+        {:error, %Cream.Error{reason: :not_found}} ->
+          value = generate_value()
+          set(conn, {key, value})
+          {:ok, value}
+      end
 
-  `get/3` options will always be used.
+  Note that this function never returns `t:Cream.ConnectionError.t/0`. If the
+  memcached server is down, it simply invokes `f` and returns that value.
+
+  It also never returns `t:Cream.Item.t/0` since that _requires_ talking to the
+  memcached server.
+
+  In other words, this function is meant to always succeed, even if your memcached
+  servers are down.
+
+  ## Examples
+
+      # Key does not exist
+      iex> get(conn, "foo")
+      {:ok, nil}
+
+      # Cache miss
+      iex> fetch(conn, "foo", fn -> "bar" end)
+      {:ok, "bar"}
+
+      # Cache has been populated (key exists now)
+      iex> get(conn, "foo")
+      {:ok, "bar"}
+
+      # Cache hit
+      iex> fetch(conn, "foo", fn -> "rab" end)
+      {:ok, "bar"}
+
   """
-  @spec fetch(t, binary, Keyword.t, (-> term)) :: {:ok, term} | {:ok, term, cas} | {:error, Error.t} | {:error, ConnectionError.t}
+  @spec fetch(t, binary, Keyword.t, (-> term)) :: {:ok, term} | {:error, Error.t}
   def fetch(conn, key, opts \\ [], f) do
     case get(conn, key, Keyword.put(opts, :quiet, false)) do
       {:ok, value} -> {:ok, value}
@@ -324,10 +354,12 @@ defmodule Cream.Connection do
         value = f.()
         case set(conn, {key, value}, opts) do
           :ok -> {:ok, value}
-          {:ok, item} -> {:ok, item}
+          {:ok, _item} -> {:ok, value}
+          {:error, %ConnectionError{}} -> {:ok, value}
           error -> error
         end
 
+      {:error, %ConnectionError{}} -> {:ok, f.()}
       error -> error
     end
   end

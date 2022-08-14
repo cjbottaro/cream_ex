@@ -2,7 +2,7 @@ defmodule ConnectionTest do
   use ExUnit.Case
   # doctest Cream.Connection, import: true, only: [set: 3]
 
-  alias Cream.{Connection, Error, Coder}
+  alias Cream.{Connection, Error, ConnectionError, Coder}
 
   setup_all do
     {:ok, conn} = Connection.start_link()
@@ -57,6 +57,13 @@ defmodule ConnectionTest do
     :ok = Connection.set(conn, {"foo", "baz"})
     {:ok, "baz"} = Connection.fetch(conn, "foo", fn -> "bar" end)
     {:ok, "baz"} = Connection.get(conn, "foo")
+  end
+
+  @tag capture_log: true
+  test "fetch with bad connection" do
+    {:ok, conn} = Connection.start_link(server: "foobar:22133")
+    {:error, %ConnectionError{}} = Connection.get(conn, "foo")
+    {:ok, "bar"} = Connection.fetch(conn, "foo", fn -> "bar" end)
   end
 
   # Note that this uses Cream.Coder.Json which is different from
