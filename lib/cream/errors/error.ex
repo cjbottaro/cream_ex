@@ -1,4 +1,17 @@
 defmodule Cream.Error do
+  @moduledoc """
+  Semantic errors returned by memcached server.
+
+  The `reason` field corresponds to a packet's status as described by
+  the memcached binary protocol.
+
+  Notable reasons are...
+
+  * `not_found` - Key does not exist.
+  * `exists` - Usually a cas error.
+
+  """
+
   defexception [:reason]
 
   @type t :: %__MODULE__{reason: atom}

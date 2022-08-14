@@ -7,7 +7,7 @@ defmodule Cream.Connection do
 
   ## Global configuration
 
-  You can globally configure _all connections_ via `Config`.
+  You can globally configure _all connections_.
   ```
   import Config
 
@@ -28,7 +28,7 @@ defmodule Cream.Connection do
   1. (Re)connections are retried indefinitely.
 
   While a connection is in a disconnected state, any operations on the
-  connection will result in `{:error, :not_connected}`.
+  connection will result in `{:error, %Cream.ConnectionError{...}}`.
 
   ## Value serialization
 
@@ -166,6 +166,8 @@ defmodule Cream.Connection do
   Delete a key.
 
   * `:quiet` - `(boolean)` - If `true`, ignore semantic errors.
+
+  ## Examples
 
       iex> delete(conn, "foo")
       :ok
@@ -321,7 +323,7 @@ defmodule Cream.Connection do
   Note that this function never returns `t:Cream.ConnectionError.t/0`. If the
   memcached server is down, it simply invokes `f` and returns that value.
 
-  It also never returns `t:Cream.Item.t/0` since that _requires_ talking to the
+  It also never returns `t:Cream.Item.t/0` since that requires talking to the
   memcached server.
 
   In other words, this function is meant to always succeed, even if your memcached

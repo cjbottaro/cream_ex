@@ -85,23 +85,38 @@ defmodule Cream.Coder do
   order.
   """
 
+  @typedoc """
+  Any module that implements the `Cream.Coder` behaviour.
+  """
   @type t :: module
-  @type value :: term
+
+  @typedoc """
+  Flags bitmask.
+  """
   @type flags :: non_neg_integer
-  @type reason :: term
+
+  @typedoc """
+  Actual binary value stored in memcached.
+  """
+  @type raw_value :: binary
+
+  @typedoc """
+  Value to be serialized, or value after deserialization.
+  """
+  @type value :: term
 
   @doc """
   Encode a value and set flags.
   """
-  @callback encode(value, flags) :: {:ok, value, flags} | {:error, reason}
+  @callback encode(value, flags) :: {:ok, raw_value, flags} | {:error, term}
 
   @doc """
   Decode a value based on flags.
   """
-  @callback decode(value, flags) :: {:ok, value} | {:error, reason}
+  @callback decode(raw_value, flags) :: {:ok, value} | {:error, term}
 
   @doc false
-  @spec encode_item(Cream.Item.t, Cream.Connection.t, Cream.Coder.t | [Cream.Coder.t]) :: {:ok, Cream.Item.t} | {:error, reason}
+  @spec encode_item(Cream.Item.t, Cream.Connection.t, Cream.Coder.t | [Cream.Coder.t]) :: {:ok, Cream.Item.t} | {:error, term}
   def encode_item(%Cream.Item{} = item, conn, coder) do
     with {:ok, coder} <- fetch_coder(conn, coder),
       {:ok, value, flags} <- encode_value(coder, item.value, item.flags)
@@ -114,13 +129,13 @@ defmodule Cream.Coder do
   end
 
   @doc false
-  @spec encode_value(Cream.Coder.t, term, non_neg_integer) :: {:ok, term, non_neg_integer} | {:error, reason}
+  @spec encode_value(Cream.Coder.t, term, non_neg_integer) :: {:ok, term, non_neg_integer} | {:error, term}
   def encode_value(coder, value, flags) when is_atom(coder) do
     coder.encode(value, flags)
   end
 
   @doc false
-  @spec encode_value([Cream.Coder.t], term, non_neg_integer) :: {:ok, term, non_neg_integer} | {:error, reason}
+  @spec encode_value([Cream.Coder.t], term, non_neg_integer) :: {:ok, term, non_neg_integer} | {:error, term}
   def encode_value(coders, value, flags) when is_list(coders) do
     Enum.reduce_while(coders, {:ok, value, flags}, fn coder, {:ok, value, flags} ->
       case encode_value(coder, value, flags) do
@@ -131,7 +146,7 @@ defmodule Cream.Coder do
   end
 
   @doc false
-  @spec decode_item(Cream.Item.t, Cream.Connection.t, Cream.Coder.t | [Cream.Coder.t]) :: {:ok, Cream.Item.t} | {:error, reason}
+  @spec decode_item(Cream.Item.t, Cream.Connection.t, Cream.Coder.t | [Cream.Coder.t]) :: {:ok, Cream.Item.t} | {:error, term}
   def decode_item(%Cream.Item{} = item, conn, coder) do
     with {:ok, coder} <- fetch_coder(conn, coder),
       {:ok, value} <- decode_value(coder, item.raw_value, item.flags)
@@ -144,13 +159,13 @@ defmodule Cream.Coder do
   end
 
   @doc false
-  @spec decode_value(Cream.Coder.t, term, non_neg_integer) :: {:ok, term} | {:error, reason}
+  @spec decode_value(Cream.Coder.t, term, non_neg_integer) :: {:ok, term} | {:error, term}
   def decode_value(coder, value, flags) when is_atom(coder) do
     coder.decode(value, flags)
   end
 
   @doc false
-  @spec decode_value([Cream.Coder.t], term, non_neg_integer) :: {:ok, term} | {:error, reason}
+  @spec decode_value([Cream.Coder.t], term, non_neg_integer) :: {:ok, term} | {:error, term}
   def decode_value(coders, value, flags) when is_list(coders) do
     Enum.reverse(coders)
     |> Enum.reduce_while({:ok, value}, fn coder, {:ok, value} ->
@@ -161,7 +176,7 @@ defmodule Cream.Coder do
     end)
   end
 
-  @spec fetch_coder(Cream.Connection.t, Cream.Coder.t | false | nil) :: {:ok, t} | :not_found | {:error, reason}
+  @spec fetch_coder(Cream.Connection.t, Cream.Coder.t | false | nil) :: {:ok, t} | :not_found | {:error, term}
   defp fetch_coder(_conn, false), do: :not_found
   defp fetch_coder(_conn, coder) when coder != nil, do: {:ok, coder}
   defp fetch_coder(conn, _coder) do

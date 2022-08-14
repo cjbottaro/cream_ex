@@ -1,4 +1,9 @@
 defmodule Cream.Coder.Gzip do
+  @moduledoc """
+  A compression coder using `:zlib.g(un)zip`.
+
+  It's uses the second bit on flags.
+  """
   use Bitwise
 
   @behaviour Cream.Coder

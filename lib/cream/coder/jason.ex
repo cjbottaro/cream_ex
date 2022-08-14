@@ -1,4 +1,9 @@
 defmodule Cream.Coder.Jason do
+  @moduledoc """
+  A JSON codering using `Jason`.
+
+  Uses the first bit on flags.
+  """
   use Bitwise
 
   @behaviour Cream.Coder
