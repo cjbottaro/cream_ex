@@ -85,6 +85,7 @@ defmodule Cream.Coder do
   order.
   """
 
+  @type t :: module
   @type value :: term
   @type flags :: integer()
   @type reason :: term
@@ -99,6 +100,8 @@ defmodule Cream.Coder do
   """
   @callback decode(value, flags) :: {:ok, value} | {:error, reason}
 
+  @doc false
+  @spec encode_item(Cream.Item.t, Cream.Connection.t, Cream.Coder.t | [Cream.Coder.t]) :: {:ok, Cream.Item.t} | {:error, reason}
   def encode_item(%Cream.Item{} = item, conn, coder) do
     with {:ok, coder} <- fetch_coder(conn, coder),
       {:ok, value, flags} <- encode_value(coder, item.value, item.flags)
@@ -111,11 +114,13 @@ defmodule Cream.Coder do
   end
 
   @doc false
+  @spec encode_value(Cream.Coder.t, term, non_neg_integer) :: {:ok, term, non_neg_integer} | {:error, reason}
   def encode_value(coder, value, flags) when is_atom(coder) do
     coder.encode(value, flags)
   end
 
   @doc false
+  @spec encode_value([Cream.Coder.t], term, non_neg_integer) :: {:ok, term, non_neg_integer} | {:error, reason}
   def encode_value(coders, value, flags) when is_list(coders) do
     Enum.reduce_while(coders, {:ok, value, flags}, fn coder, {:ok, value, flags} ->
       case encode_value(coder, value, flags) do
@@ -126,6 +131,7 @@ defmodule Cream.Coder do
   end
 
   @doc false
+  @spec decode_item(Cream.Item.t, Cream.Connection.t, Cream.Coder.t | [Cream.Coder.t]) :: {:ok, Cream.Item.t} | {:error, reason}
   def decode_item(%Cream.Item{} = item, conn, coder) do
     with {:ok, coder} <- fetch_coder(conn, coder),
       {:ok, value} <- decode_value(coder, item.raw_value, item.flags)
@@ -138,11 +144,13 @@ defmodule Cream.Coder do
   end
 
   @doc false
+  @spec decode_value(Cream.Coder.t, term, non_neg_integer) :: {:ok, term} | {:error, reason}
   def decode_value(coder, value, flags) when is_atom(coder) do
     coder.decode(value, flags)
   end
 
   @doc false
+  @spec decode_value([Cream.Coder.t], term, non_neg_integer) :: {:ok, term} | {:error, reason}
   def decode_value(coders, value, flags) when is_list(coders) do
     Enum.reverse(coders)
     |> Enum.reduce_while({:ok, value}, fn coder, {:ok, value} ->
@@ -153,6 +161,7 @@ defmodule Cream.Coder do
     end)
   end
 
+  @spec fetch_coder(Cream.Connection.t, Cream.Coder.t | false | nil) :: {:ok, t} | :not_found | {:error, reason}
   defp fetch_coder(_conn, false), do: :not_found
   defp fetch_coder(_conn, coder) when coder != nil, do: {:ok, coder}
   defp fetch_coder(conn, _coder) do
