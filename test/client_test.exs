@@ -39,7 +39,7 @@ defmodule ClientTest do
   test "fetch" do
     :ok = TestClient.delete("foo")
 
-    {:error, %Error{reason: :not_found}} = TestClient.get("foo", verbose: true)
+    {:error, %Error{reason: :not_found}} = TestClient.get("foo", quiet: false)
     {:ok, "bar"} = TestClient.fetch("foo", fn -> "bar" end)
     {:ok, "bar"} = TestClient.get("foo")
 

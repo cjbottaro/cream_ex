@@ -99,15 +99,26 @@ defmodule Cream.Coder do
   """
   @callback decode(value, flags) :: {:ok, value} | {:error, reason}
 
+  def encode_item(%Cream.Item{} = item, conn, coder) do
+    with {:ok, coder} <- fetch_coder(conn, coder),
+      {:ok, value, flags} <- encode_value(coder, item.value, item.flags)
+    do
+      {:ok, %{item | raw_value: value, flags: flags, coder: coder}}
+    else
+      :not_found -> {:ok, item}
+      error -> error
+    end
+  end
+
   @doc false
-  def encode(coder, value, flags) when is_atom(coder) do
+  def encode_value(coder, value, flags) when is_atom(coder) do
     coder.encode(value, flags)
   end
 
   @doc false
-  def encode(coders, value, flags) when is_list(coders) do
+  def encode_value(coders, value, flags) when is_list(coders) do
     Enum.reduce_while(coders, {:ok, value, flags}, fn coder, {:ok, value, flags} ->
-      case encode(coder, value, flags) do
+      case encode_value(coder, value, flags) do
         {:ok, value, flags} -> {:cont, {:ok, value, flags}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -115,18 +126,40 @@ defmodule Cream.Coder do
   end
 
   @doc false
-  def decode(coder, value, flags) when is_atom(coder) do
+  def decode_item(%Cream.Item{} = item, conn, coder) do
+    with {:ok, coder} <- fetch_coder(conn, coder),
+      {:ok, value} <- decode_value(coder, item.raw_value, item.flags)
+    do
+      {:ok, %{item | value: value, coder: coder}}
+    else
+      :not_found -> {:ok, item}
+      error -> error
+    end
+  end
+
+  @doc false
+  def decode_value(coder, value, flags) when is_atom(coder) do
     coder.decode(value, flags)
   end
 
   @doc false
-  def decode(coders, value, flags) when is_list(coders) do
-    Enum.reduce_while(coders, {:ok, value}, fn coder, {:ok, value} ->
-      case decode(coder, value, flags) do
+  def decode_value(coders, value, flags) when is_list(coders) do
+    Enum.reverse(coders)
+    |> Enum.reduce_while({:ok, value}, fn coder, {:ok, value} ->
+      case decode_value(coder, value, flags) do
         {:ok, value} -> {:cont, {:ok, value}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+  end
+
+  defp fetch_coder(_conn, false), do: :not_found
+  defp fetch_coder(_conn, coder) when coder != nil, do: {:ok, coder}
+  defp fetch_coder(conn, _coder) do
+    case Connection.call(conn, :fetch_coder) do
+      {:ok, nil} -> :not_found
+      result -> result
+    end
   end
 
 end

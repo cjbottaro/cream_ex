@@ -15,7 +15,7 @@ defmodule ConnectionTest do
 
   test "set", %{conn: conn} do
     :ok = Connection.set(conn, {"foo", "bar"})
-    {:ok, cas} = Connection.set(conn, {"foo", "bar"}, cas: true)
+    {:ok, %{cas: cas}} = Connection.set(conn, {"foo", "bar"}, verbose: true)
     {:error, %Error{reason: :exists}} = Connection.set(conn, {"foo", "bar1", cas: cas+1})
     {:ok, "bar"} = Connection.get(conn, "foo")
     :ok = Connection.set(conn, {"foo", "bar1", cas: cas})
@@ -23,34 +23,34 @@ defmodule ConnectionTest do
   end
 
   test "get", %{conn: conn} do
-    {:ok, set_cas} = Connection.set(conn, {"name", "Callie"}, cas: true)
+    {:ok, %{cas: set_cas}} = Connection.set(conn, {"name", "Callie"}, verbose: true)
 
     {:ok, nil} = Connection.get(conn, "foo")
-    {:error, %Error{reason: :not_found}} = Connection.get(conn, "foo", verbose: true)
+    {:error, %Error{reason: :not_found}} = Connection.get(conn, "foo", quiet: false)
     {:ok, "Callie"} = Connection.get(conn, "name")
-    {:ok, "Callie", get_cas} = Connection.get(conn, "name", cas: true)
+    {:ok, %{value: "Callie", cas: get_cas}} = Connection.get(conn, "name", verbose: true)
     assert set_cas == get_cas
   end
 
   test "delete", %{conn: conn} do
-    {:error, %Error{reason: :not_found}} = Connection.delete(conn, "foo", verbose: true)
+    {:error, %Error{reason: :not_found}} = Connection.delete(conn, "foo", quiet: false)
     :ok = Connection.delete(conn, "foo")
 
     :ok = Connection.set(conn, {"foo", "bar"})
     {:ok, "bar"} = Connection.get(conn, "foo")
-    :ok = Connection.delete(conn, "foo", verbose: true)
-    {:error, %Error{reason: :not_found}} = Connection.get(conn, "foo", verbose: true)
-    {:error, %Error{reason: :not_found}} = Connection.delete(conn, "foo", verbose: true)
+    :ok = Connection.delete(conn, "foo", quiet: false)
+    {:error, %Error{reason: :not_found}} = Connection.get(conn, "foo", quiet: false)
+    {:error, %Error{reason: :not_found}} = Connection.delete(conn, "foo", quiet: false)
 
     :ok = Connection.set(conn, {"foo", "bar"})
     {:ok, "bar"} = Connection.get(conn, "foo")
     :ok = Connection.delete(conn, "foo")
-    {:error, %Error{reason: :not_found}} = Connection.get(conn, "foo", verbose: true)
-    {:error, %Error{reason: :not_found}} = Connection.delete(conn, "foo", verbose: true)
+    {:error, %Error{reason: :not_found}} = Connection.get(conn, "foo", quiet: false)
+    {:error, %Error{reason: :not_found}} = Connection.delete(conn, "foo", quiet: false)
   end
 
   test "fetch", %{conn: conn} do
-    {:error, %Error{reason: :not_found}} = Connection.get(conn, "foo", verbose: true)
+    {:error, %Error{reason: :not_found}} = Connection.get(conn, "foo", quiet: false)
     {:ok, "bar"} = Connection.fetch(conn, "foo", fn -> "bar" end)
     {:ok, "bar"} = Connection.get(conn, "foo")
 

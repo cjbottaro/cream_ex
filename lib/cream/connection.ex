@@ -40,7 +40,7 @@ defmodule Cream.Connection do
 
   use Connection
   require Logger
-  alias Cream.{Protocol, Coder, Error, ConnectionError}
+  alias Cream.{Protocol, Item, Coder, Error, ConnectionError}
 
   @typedoc """
   A connection.
@@ -165,6 +165,8 @@ defmodule Cream.Connection do
   @doc """
   Delete a key.
 
+  * `:quiet` - `(boolean)` - If `true`, ignore semantic errors.
+
       iex> delete(conn, "foo")
       :ok
 
@@ -174,12 +176,14 @@ defmodule Cream.Connection do
   """
   @spec delete(t, binary, Keyword.t) :: :ok | {:error, Error.t} | {:error, ConnectionError.t}
   def delete(conn, key, opts \\ []) do
+    quiet? = Keyword.get(opts, :quiet, true)
+
     case Connection.call(conn, {:delete, key}) do
       {:ok, %{status: :ok}} -> :ok
-      {:ok, %{status: :not_found}} -> if opts[:verbose] do
-        {:error, Error.exception(:not_found)}
-      else
+      {:ok, %{status: :not_found}} -> if quiet? do
         :ok
+      else
+        {:error, Error.exception(:not_found)}
       end
       {:error, %ConnectionError{} = conn_error} -> {:error, conn_error}
       {:error, reason} -> {:error, Error.exception(reason)}
@@ -191,7 +195,7 @@ defmodule Cream.Connection do
 
   ## Options
 
-  * `:cas` - `(boolean)` - Return cas value in result. Default `false`.
+  * `:verbose` - `(boolean)` - If `true`, return the `t:Cream.Item.t/0` that was set. Default `false`.
   * `:coder` - `(atom|nil)` - Use a `Cream.Coder` on value. Overrides the config
     used by `start_link/1`. Default `nil`.
 
@@ -212,32 +216,26 @@ defmodule Cream.Connection do
       :ok
 
       # Return cas value.
-      iex> set(conn, {"foo", "bar"}, cas: true)
-      {:ok, 123}
+      iex> set(conn, {"foo", "bar"}, verbose: true)
+      {:ok, %Cream.Item{cas: 123, ...}}
 
       # Set using bad cas value results in error.
       iex> set(conn, {"foo", "bar", cas: 124})
       {:error, %Cream.Error{reason: :exists}}
 
       # Set using cas value and return new cas value.
-      iex> set(conn, {"foo", "bar", cas: 123}, cas: true)
-      {:ok, 124}
+      iex> set(conn, {"foo", "bar", cas: 123}, verbose: true)
+      {:ok, %Cream.Item{cas: 124, ...}}
 
   """
-  @spec set(t, item, Keyword.t) :: :ok | {:ok, cas} | {:error, Error.t} | {:error, ConnectionError.t}
+  @spec set(t, item, Keyword.t) :: :ok | {:ok, Item.t} | {:error, Error.t} | {:error, ConnectionError.t}
   def set(conn, item, opts \\ []) do
-    opts_coder = case opts[:coder] do
-      false -> false
-      coder -> List.wrap(coder)
-    end
-
     with {:ok, item} <- Cream.Item.from_args(item),
-      {:ok, conn_coder} <- Connection.call(conn, :get_encoder),
-      {:ok, item} <- encode(item, opts_coder, conn_coder),
+      {:ok, item} <- Coder.encode_item(item, conn, opts[:coder]),
       {:ok, %{status: :ok} = packet} <- Connection.call(conn, {:set, item})
     do
-      if opts[:cas] do
-        {:ok, packet.cas}
+      if opts[:verbose] do
+        {:ok, %{item | cas: packet.cas}}
       else
         :ok
       end
@@ -253,47 +251,52 @@ defmodule Cream.Connection do
 
   ## Options
 
-  * `:verbose` - `(boolean)` - If `true`, missing keys will return an error. If
-    `false`, missing keys will return `nil`. Default `false`.
-  * `:cas` - `(boolean)` - Return cas value in result. Default `false`.
+  * `:quiet` - `(boolean)` - If `false`, missing keys will return an error. Default `true`.
+  * `:verbose` - `(boolean)` - If `true`, `t:Cream.Item.t/0`s are returned. If false,
+  then just value is returned. Default `false`.
 
   ## Examples
 
-      iex> get(conn, "foo")
+      iex> delete(conn, "name")
+      :ok
+
+      iex> get(conn, "name", quiet: false)
+      {:error, %Cream.Error{reason: :not_found}}
+
+      iex> get(conn, "name")
       {:ok, nil}
 
-      iex> get(conn, "foo", verbose: true)
-      {:error, %Cream.Error{reason: :not_found}}
+      iex> set(conn, {"name", "Callie"})
+      :ok
 
       iex> get(conn, "name")
       {:ok, "Callie"}
 
-      iex> get(conn, "name", cas: true)
-      {:ok, "Callie", 123}
+      iex> get(conn, "name", verbose: true)
+      {:ok, %Cream.Item{value: "Callie", cas: 123, ...}}
 
   """
-  @spec get(t, binary, Keyword.t) :: {:ok, term} | {:ok, term, cas} | {:error, Error.t} | {:error, ConnectionError.t}
+  @spec get(t, binary, Keyword.t) :: {:ok, term} | {:ok, Item.t} | {:error, Error.t} | {:error, ConnectionError.t}
   def get(conn, key, opts \\ []) do
-    opts_coder = case opts[:coder] do
-      false -> false
-      coder -> List.wrap(coder) |> Enum.reverse()
-    end
+    quiet? = Keyword.get(opts, :quiet, true)
+    verbose? = Keyword.get(opts, :verbose, false)
 
-    with {:ok, %{status: :ok} = packet, conn_coder} <- Connection.call(conn, {:get, key}),
-      {:ok, value} <- decode(packet, opts_coder, conn_coder)
+    with {:ok, %{status: :ok} = packet} <- Connection.call(conn, {:get, key}),
+      {:ok, item} <- Item.from_packet(packet, key: key),
+      {:ok, item} <- Coder.decode_item(item, conn, opts[:coder])
     do
-      if opts[:cas] do
-        {:ok, value, packet.cas}
+      if verbose? do
+        {:ok, %{item | key: key}}
       else
-        {:ok, value}
+        {:ok, item.value}
       end
     else
-      {:ok, %{status: :not_found}, _coder} -> if opts[:verbose] do
-        {:error, Error.exception(:not_found)}
-      else
+      {:ok, %{status: :not_found}} -> if quiet? do
         {:ok, nil}
+      else
+        {:error, Error.exception(:not_found)}
       end
-      {:ok, %{status: reason}, _coder} -> {:error, Error.exception(reason)}
+      {:ok, %{status: reason}} -> {:error, Error.exception(reason)}
       {:error, %ConnectionError{} = conn_error} -> {:error, conn_error}
       {:error, reason} -> {:error, Error.exception(reason)}
     end
@@ -315,14 +318,13 @@ defmodule Cream.Connection do
   """
   @spec fetch(t, binary, Keyword.t, (-> term)) :: {:ok, term} | {:ok, term, cas} | {:error, Error.t} | {:error, ConnectionError.t}
   def fetch(conn, key, opts \\ [], f) do
-    case get(conn, key, Keyword.put(opts, :verbose, true)) do
+    case get(conn, key, Keyword.put(opts, :quiet, false)) do
       {:ok, value} -> {:ok, value}
-      {:ok, value, cas} -> {:ok, value, cas}
       {:error, %Error{reason: :not_found}} ->
         value = f.()
         case set(conn, {key, value}, opts) do
           :ok -> {:ok, value}
-          {:ok, cas} -> {:ok, value, cas}
+          {:ok, item} -> {:ok, item}
           error -> error
         end
 
@@ -355,14 +357,9 @@ defmodule Cream.Connection do
   end
 
   def init(config) do
-    encoder = List.wrap(config[:coder])
-    decoder = Enum.reverse(encoder)
-
     state = %{
       config: config,
       socket: nil,
-      encoder: encoder,
-      decoder: decoder,
       err_reason: nil,
       err_count: 0,
     }
@@ -414,8 +411,8 @@ defmodule Cream.Connection do
     {:connect, reason, %{state | socket: nil}}
   end
 
-  def handle_call(:get_encoder, _from, state) do
-    {:reply, {:ok, state.encoder}, state}
+  def handle_call(:fetch_coder, _from, state) do
+    {:reply, {:ok, state.config[:coder]}, state}
   end
 
   def handle_call(_command, _from, state) when is_nil(state.socket) do
@@ -468,7 +465,7 @@ defmodule Cream.Connection do
   end
 
   def handle_call({:get, key}, from, state) do
-    %{socket: socket, decoder: decoder} = state
+    %{socket: socket} = state
 
     packet = Protocol.get(key)
 
@@ -477,7 +474,7 @@ defmodule Cream.Connection do
       {:ok, packet} <- Protocol.recv_packet(socket),
       :ok <- :inet.setopts(socket, active: true)
     do
-      {:reply, {:ok, packet, decoder}, state}
+      {:reply, {:ok, packet}, state}
     else
       {:error, reason} -> handle_conn_error(reason, from, state)
     end
@@ -505,30 +502,6 @@ defmodule Cream.Connection do
     error = ConnectionError.exception(reason: reason, server: config[:server])
     :ok = GenServer.reply(from, {:error, error})
     {:disconnect, reason, state}
-  end
-
-  defp encode(%Cream.Item{} = item, opts_coder, conn_coder) do
-    result = case {opts_coder, conn_coder} do
-      {false, _} -> :noop
-      {[], []} -> :noop
-      {coder, _} when coder != [] -> Coder.encode(coder, item.value, item.flags)
-      {_, coder} when coder != [] -> Coder.encode(coder, item.value, item.flags)
-    end
-
-    case result do
-      :noop -> {:ok, item}
-      {:ok, value, flags} -> {:ok, %{item | value: value, flags: flags}}
-      error -> error
-    end
-  end
-
-  defp decode(packet, opts_coder, conn_coder) do
-    case {opts_coder, conn_coder} do
-      {false, _} -> {:ok, packet.value}
-      {[], []} -> {:ok, packet.value}
-      {coder, _} when coder != [] -> Coder.decode(coder, packet.value, packet.extras.flags)
-      {_, coder} when coder != [] -> Coder.decode(coder, packet.value, packet.extras.flags)
-    end
   end
 
 end
