@@ -345,6 +345,10 @@ defmodule Cream.Connection do
       iex> fetch(conn, "foo", fn -> "rab" end)
       {:ok, "bar"}
 
+      # Set using ttl on cache miss
+      iex> fetch(conn, "foo", [ttl: 60], fn -> "bar" end)
+      {:ok, "bar"}
+
   """
   @spec fetch(t, binary, Keyword.t, (-> term)) :: {:ok, term} | {:error, Error.t}
   def fetch(conn, key, opts \\ [], f) do
