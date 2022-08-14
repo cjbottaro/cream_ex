@@ -87,7 +87,7 @@ defmodule Cream.Coder do
 
   @type t :: module
   @type value :: term
-  @type flags :: integer()
+  @type flags :: non_neg_integer
   @type reason :: term
 
   @doc """

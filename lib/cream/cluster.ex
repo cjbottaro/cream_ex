@@ -48,21 +48,14 @@ defmodule Cream.Cluster do
   end
 
   def flush(cluster, opts \\ []) do
-    errors = cluster.servers
-    |> Enum.with_index()
-    |> Enum.reduce(%{}, fn {server, i}, acc ->
+    (0..tuple_size(cluster.connections)-1)
+    |> Enum.reduce_while(:ok, fn i, :ok ->
       conn = elem(cluster.connections, i)
       case Cream.Connection.flush(conn, opts) do
-        :ok -> acc
-        {:error, reason} -> Map.put(acc, server, reason)
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
       end
     end)
-
-    if errors == %{} do
-      :ok
-    else
-      {:error, errors}
-    end
   end
 
   def find_conn(%{continuum: nil, connections: {conn}}, _key), do: conn

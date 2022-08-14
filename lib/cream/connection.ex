@@ -158,7 +158,7 @@ defmodule Cream.Connection do
         :ok -> :ok
         reason -> {:error, Error.exception(reason)}
       end
-      %ConnectionError{} = conn_error -> {:error, conn_error}
+      error -> error
     end
   end
 
