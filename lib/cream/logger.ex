@@ -1,4 +1,5 @@
 defmodule Cream.Logger do
+  @moduledoc false
   require Logger
 
   def init do

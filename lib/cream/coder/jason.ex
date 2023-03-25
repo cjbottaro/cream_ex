@@ -1,6 +1,6 @@
 defmodule Cream.Coder.Jason do
   @moduledoc """
-  A JSON codering using `Jason`.
+  A JSON coder using `Jason`.
 
   Uses the first bit on flags.
   """

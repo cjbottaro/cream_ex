@@ -71,23 +71,18 @@ defmodule Cream.Connection do
   """
   @type cas :: non_neg_integer()
 
+  @type config :: [
+    {:server, binary},
+    {:coder, module | nil}
+  ]
+
   @defaults [
     server: "localhost:11211",
     coder: nil,
   ]
 
   @doc """
-  Default config.
-
-  ```
-  #{inspect @defaults, pretty: true, width: 0}
-  ```
-  """
-  def defaults, do: @defaults
-
-  @doc """
-  `Config` merged with `defaults/0`.
-
+  Config options as read from `Config`.
   ```
   import Config
   config :cream, Cream.Connection, coder: FooCoder
@@ -108,7 +103,10 @@ defmodule Cream.Connection do
 
   The given `config` will be merged over `config/0`.
 
-  See `defaults/0` for config options.
+  Default config is
+  ```
+  #{inspect @defaults, pretty: true, width: 0}
+  ```
 
   Note that this will typically _always_ return `{:ok conn}`, even if the actual
   TCP connection failed. If that is the case, subsequent uses of the connection
@@ -133,7 +131,7 @@ defmodule Cream.Connection do
       {:error, %Cream.Error{reason: :econnrefused, server: "localhost:99899"}}
 
   """
-  @spec start_link(Keyword.t) :: {:ok, t} | {:error, reason}
+  @spec start_link(config) :: {:ok, t} | {:error, reason}
   def start_link(config \\ []) do
     config = Keyword.merge(config(), config)
     Connection.start_link(__MODULE__, config)

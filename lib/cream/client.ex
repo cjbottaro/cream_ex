@@ -25,7 +25,7 @@ defmodule Cream.Client do
   ```
 
   Now _every_ client will use those servers unless overwritten by an argument
-  passed to `start_link/1` or `child_spec/1`.
+  passed to `start_link/1`.
 
   ## Using as a module
 
@@ -63,6 +63,36 @@ defmodule Cream.Client do
   See `c:config/0` for an example.
   """
 
+  @defaults [
+    pool_size: 5,
+    lazy: true,
+    servers: ["localhost:11211"],
+    coder: nil,
+    ttl: nil
+  ]
+
+  @typedoc """
+  Configuration options.
+
+  * `pool_size` - How big the connection pool is.
+  * `lazy` - If the connection pool is lazily loaded.
+  * `servers` - What memcached servers to connect to.
+  * `coder` - What `Cream.Coder` to use.
+  * `ttl` - Default time to live (expiry) in seconds to use with `set/3`.
+
+  Defaults are:
+  ```
+  #{inspect @defaults, pretty: true, width: 0}
+  ```
+  """
+  @type config :: [
+    {:pool_size, non_neg_integer},
+    {:lazy, boolean},
+    {:servers, [binary]},
+    {:coder, module | nil},
+    {:ttl, non_neg_integer | nil}
+  ]
+
   @typedoc """
   A `Cream.Client`.
   """
@@ -77,31 +107,8 @@ defmodule Cream.Client do
 
   @behaviour NimblePool
 
-  @defaults [
-    pool_size: 5,
-    lazy: true,
-    servers: ["localhost:11211"],
-    coder: nil,
-    ttl: nil
-  ]
-
   @doc """
-  Default config.
-
-  ```
-  #{inspect @defaults, pretty: true, width: 0}
-  ```
-
-  * `pool_size` - How big the connection pool is.
-  * `lazy` - If the connection pool is lazily loaded.
-  * `servers` - What memcached servers to connect to.
-  * `coder` - What `Cream.Coder` to use.
-  * `ttl` - Default time to live (expiry) in seconds to use with `set/3`.
-  """
-  def defaults, do: @defaults
-
-  @doc """
-  `Config` merged with `defaults/0`.
+  Configuration as read from `Config`.
 
   ```
   import Config
@@ -146,11 +153,13 @@ defmodule Cream.Client do
   `config` will be merged over `config/0`.
   """
   def child_spec(config \\ []) do
-    config = Keyword.merge(config(), config)
+    {nimble_config, cream_config} =
+      config()
+      |> Keyword.merge(config)
+      |> Keyword.split([:pool_size, :lazy, :name])
 
-    Keyword.take(config, [:pool_size, :lazy])
-    |> Keyword.put(:worker, {__MODULE__, config})
-    |> Keyword.put(:name, config[:name])
+    nimble_config
+    |> Keyword.put(:worker, {__MODULE__, cream_config})
     |> NimblePool.child_spec()
   end
 
@@ -159,8 +168,12 @@ defmodule Cream.Client do
 
   `config` will be merged over `config/0`.
 
-  See `defaults/0` for valid config options.
+  Default options are:
+  ```
+  #{inspect @defaults, pretty: true, width: 0}
+  ```
   """
+  @spec start_link(config) :: {:ok, t} | {:error, reason}
   def start_link(config \\ []) do
     %{start: {m, f, a}} = child_spec(config)
     apply(m, f, a)
@@ -222,8 +235,6 @@ defmodule Cream.Client do
   Start a client.
 
   `config` is merged with `c:config/0`.
-
-  See `defaults/0` for valid `config` options.
   """
   @callback start_link(config :: Keyword.t) :: {:ok, t} | {:error, reason}
 
@@ -231,8 +242,6 @@ defmodule Cream.Client do
   Child specification for supervisors.
 
   `config` is merged with `c:config/0`.
-
-  See `defaults/0` for valid `config` options.
   """
   @callback child_spec(config :: Keyword.t) :: Supervisor.child_spec
 
@@ -279,11 +288,6 @@ defmodule Cream.Client do
 
       def flush(opts \\ []) do
         Cream.Client.flush(__MODULE__, opts)
-      end
-
-      defp config_config do
-        Application.get_application(__MODULE__)
-        |> Application.get_env(__MODULE__, [])
       end
 
     end

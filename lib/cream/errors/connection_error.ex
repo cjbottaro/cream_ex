@@ -2,10 +2,10 @@ defmodule Cream.ConnectionError do
   @moduledoc """
   Server connection errors.
 
-  `reason` will be things like `:nxdomain` and `:econnrefused` as returned by
+  `:reason` will be things like `:nxdomain` and `:econnrefused` as returned by
   Erlang's `:gen_tcp` module.
 
-  `server` will be a server binary like `"localhost:11211"`.
+  `:server` will be a binary like `"localhost:11211"`.
   """
   defexception [:reason, :server]
 

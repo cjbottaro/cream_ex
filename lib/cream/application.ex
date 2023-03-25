@@ -6,7 +6,9 @@ defmodule Cream.Application do
   def start(_, _) do
     :ok = Cream.Logger.init()
 
-    children = []
+    children = [
+      # {Cream.Client, [name: Cream]}
+    ]
 
     Supervisor.start_link(children, strategy: :one_for_one)
   end
