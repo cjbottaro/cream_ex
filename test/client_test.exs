@@ -5,7 +5,9 @@ defmodule ClientTest do
   setup_all do
     {:ok, _client} = TestClient.start_link()
     :ok = TestClient.flush()
-    {_, 0} = System.cmd("bundle", ["exec", "ruby", "test/support/populate.rb"])
+    servers = TestClient.config[:servers]
+    {_, 0} = System.cmd("bundle", ["exec", "ruby", "test/support/populate.rb" | servers])
+
     :ok
   end
 

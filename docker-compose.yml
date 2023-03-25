@@ -9,9 +9,3 @@ services:
     deploy:
       mode: replicated
       replicas: 3
-
-  dalli:
-    tty: true
-    stdin_open: true
-    build:
-      context: .

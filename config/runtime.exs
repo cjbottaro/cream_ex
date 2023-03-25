@@ -2,9 +2,16 @@ import Config
 
 {json, 0} = System.cmd("docker", ~w(compose ps --format json))
 
-servers = Jason.decode!(json)
-|> Enum.sort_by(& &1["Name"])
-|> Enum.map(fn container ->
+containers = Jason.decode!(json)
+
+servers =[
+  "cream_ex-memcached-1",
+  "cream_ex-memcached-2",
+  "cream_ex-memcached-3"
+]
+|> Enum.map(fn name ->
+  container = Enum.find(containers, & &1["Name"] == name)
+
   port = container["Publishers"]
   |> List.first()
   |> Map.get("PublishedPort")
