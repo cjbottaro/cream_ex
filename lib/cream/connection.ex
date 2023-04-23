@@ -350,21 +350,21 @@ defmodule Cream.Connection do
       {:ok, "bar"}
 
   """
-  @spec fetch(t, binary, Keyword.t, (-> term)) :: {:ok, term} | {:error, Error.t}
+  @spec fetch(t, binary, Keyword.t, (-> term)) :: term
   def fetch(conn, key, opts \\ [], f) do
     case get(conn, key, Keyword.put(opts, :quiet, false)) do
-      {:ok, value} -> {:ok, value}
+      {:ok, value} -> value
       {:error, %Error{reason: :not_found}} ->
         value = f.()
         case set(conn, {key, value}, opts) do
-          :ok -> {:ok, value}
-          {:ok, _item} -> {:ok, value}
-          {:error, %ConnectionError{}} -> {:ok, value}
+          :ok -> value
+          {:ok, _item} -> value
+          {:error, %ConnectionError{}} -> value
           error -> error
         end
 
-      {:error, %ConnectionError{}} -> {:ok, f.()}
-      error -> error
+      {:error, %ConnectionError{}} -> f.()
+      _error -> f.()
     end
   end
 
@@ -485,7 +485,16 @@ defmodule Cream.Connection do
   end
 
   def handle_call({:set, item}, from, state) do
-    %{socket: socket} = state
+    %{config: config, socket: socket} = state
+
+    item = if item.ttl == nil do
+      case config[:ttl] do
+        nil -> %{item | ttl: 0}
+        ttl -> %{item | ttl: ttl}
+      end
+    else
+      item
+    end
 
     packet = Protocol.set(item)
 

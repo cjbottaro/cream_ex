@@ -4,7 +4,7 @@ defmodule Cream.Coder.Gzip do
 
   It's uses the second bit on flags.
   """
-  use Bitwise
+  import Bitwise
 
   @behaviour Cream.Coder
 

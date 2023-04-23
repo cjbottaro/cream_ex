@@ -14,7 +14,7 @@ defmodule Cream.Item do
   been applied. It can be any kind of term.
 
   """
-  defstruct [:key, :value, :raw_value, ttl: 0, cas: 0, flags: 0, coder: nil]
+  defstruct [:key, :value, :raw_value, ttl: nil, cas: 0, flags: 0, coder: nil]
 
   @type t :: %__MODULE__{
     key: binary,

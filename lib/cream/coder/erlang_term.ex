@@ -1,6 +1,6 @@
-defmodule Cream.Coder.Jason do
+defmodule Cream.Coder.ErlangTerm do
   @moduledoc """
-  A JSON coder using `Jason`.
+  A coder using :`erlang.term_to_binary/1`.
 
   Uses the first bit on flags.
   """
@@ -9,15 +9,11 @@ defmodule Cream.Coder.Jason do
   @behaviour Cream.Coder
 
   def encode(value, flags) do
-    with {:ok, json} <- Jason.encode(value) do
-      {:ok, json, flags ||| 0b01}
-    end
+    {:ok, :erlang.term_to_binary(value), flags ||| 0b01}
   end
 
   def decode(value, flags) when (flags &&& 0b01) == 0b01 do
-    with {:ok, json} <- Jason.decode(value) do
-      {:ok, json}
-    end
+    {:ok, :erlang.binary_to_term(value)}
   end
 
   def decode(value, _flags) do

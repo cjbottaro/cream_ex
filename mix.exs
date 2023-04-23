@@ -60,9 +60,9 @@ defmodule Cream.Mixfile do
   # Type "mix help deps" for more examples and options
   defp deps do
     [
-      {:telemetry, "~> 0.4.2"},
+      {:telemetry, "~> 0.4.2 or ~> 1.0"},
       {:connection, "~> 1.0"},
-      {:nimble_pool, "~> 0.0"},
+      {:nimble_pool, "~> 0.2 or ~> 1.0"},
       {:jason, "~> 1.0", only: [:dev, :test]},
       {:ex_doc, "~> 0.0", only: :dev},
     ]
