@@ -1,13 +1,13 @@
 defmodule Cream.Application do
   @moduledoc false
-  
+
   use Application
 
   def start(_, _) do
-    import Supervisor.Spec, warn: false
+    :ok = Cream.Logger.init()
 
     children = [
-      worker(Registry, [:unique, Cream.Registry]),
+      # {Cream.Client, [name: Cream]}
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one)

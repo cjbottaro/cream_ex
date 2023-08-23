@@ -1,18 +1,17 @@
 defmodule Cream.Utils do
   @moduledoc false
 
-  def normalize_servers(servers) do
-    List.wrap(servers) |> Enum.map(fn server ->
-      case to_string(server) |> String.split(":") do
-        [host | []] -> "#{host}:11211"
-        [host, port | []] -> "#{host}:#{port}"
-      end
-    end)
+  def normalize_item(item, opts \\ [])
+
+  def normalize_item({key, value}, opts) do
+    ttl = Keyword.get(opts, :ttl, 0)
+    {key, value, ttl, 0}
   end
 
-  def parse_server(server) do
-    [host, port | []] = server |> to_string |> String.split(":")
-    {host, String.to_integer(port)}
+  def normalize_item({key, value, item_opts}, opts) do
+    ttl = item_opts[:ttl] || opts[:ttl] || 0
+    cas = Keyword.get(item_opts, :cas, 0)
+    {key, value, ttl, cas}
   end
 
 end

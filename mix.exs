@@ -3,8 +3,8 @@ defmodule Cream.Mixfile do
 
   def project do
     [app: :cream,
-     version: "0.2.0",
-     elixir: "~> 1.4",
+     version: "1.0.0",
+     elixir: "~> 1.0",
      build_embedded: Mix.env == :prod,
      start_permanent: Mix.env == :prod,
      elixirc_paths: elixirc_paths(Mix.env),
@@ -19,10 +19,12 @@ defmodule Cream.Mixfile do
       ],
 
      docs: [
-       main: "readme",
+       main: "Cream.Client",
        extras: [
-         "README.md": [title: "README"],
          "CHANGELOG.md": [title: "CHANGELOG"]
+       ],
+       groups_for_modules: [
+         "Coders": [Cream.Coder.Gzip, Cream.Coder.Jason]
        ]
      ]
    ]
@@ -42,7 +44,7 @@ defmodule Cream.Mixfile do
   def application do
     [
       # Specify extra applications you'll use from Erlang/Elixir
-      extra_applications: [:logger],
+      extra_applications: [:logger, :crypto],
       mod: {Cream.Application, []}
     ]
   end
@@ -58,12 +60,11 @@ defmodule Cream.Mixfile do
   # Type "mix help deps" for more examples and options
   defp deps do
     [
-      {:memcachex, ">= 0.4.0"},
-      {:uuid, "~> 1.1"},
-      {:poison, ">= 2.0.0"},
-      {:poolboy, "~> 1.5"},
+      {:telemetry, "~> 0.4.2 or ~> 1.0"},
+      {:connection, "~> 1.0"},
+      {:nimble_pool, "~> 0.2 or ~> 1.0"},
+      {:jason, "~> 1.0", only: [:dev, :test]},
       {:ex_doc, "~> 0.0", only: :dev},
-      {:instrumentation, ">= 0.1.0"}
     ]
   end
 end

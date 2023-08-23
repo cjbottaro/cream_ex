@@ -7,17 +7,17 @@ defmodule Cream.Continuum do
     total_servers = length(servers)
     total_weight  = length(servers) # TODO implement weights
 
-    servers
-      |> Enum.reduce([], fn server, acc ->
-        count = entry_count_for(server, 1, total_servers, total_weight)
-        Enum.reduce 0..count-1, acc, fn i, acc ->
-          hash = :crypto.hash(:sha, "#{server}:#{i}") |> Base.encode16
-          {value, _} = hash |> String.slice(0, 8) |> Integer.parse(16)
-          [{server, value} | acc]
-        end
-      end)
-      |> Enum.sort_by(fn {_id, value} -> value end)
-      |> List.to_tuple
+    Enum.with_index(servers)
+    |> Enum.reduce([], fn {server, server_index}, acc ->
+      count = entry_count_for(server, 1, total_servers, total_weight)
+      Enum.reduce 0..count-1, acc, fn i, acc ->
+        hash = :crypto.hash(:sha, "#{server}:#{i}") |> Base.encode16()
+        {value, _} = hash |> String.slice(0, 8) |> Integer.parse(16)
+        [{server_index, value} | acc]
+      end
+    end)
+    |> Enum.sort_by(fn {_id, value} -> value end)
+    |> List.to_tuple
   end
 
   def find(continuum, key, attempt \\ 0)
@@ -54,7 +54,7 @@ defmodule Cream.Continuum do
   defp binary_search(entries, value), do: binary_search(entries, value, 0, tuple_size(entries)-1)
   defp binary_search(_entries, _value, lower, upper) when lower > upper, do: upper
   defp binary_search(entries, value, lower, upper) do
-    i = ((lower + upper) / 2) |> trunc
+    i = ((lower + upper) / 2) |> trunc()
     { _, candidate_value } = elem(entries, i)
     cond do
       candidate_value == value -> i
