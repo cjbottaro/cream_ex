@@ -28,7 +28,7 @@ defmodule Cream.Continuum do
     hkey = if attempt == 0 do
       :erlang.crc32(key)
     else
-      :erlang.crc32("#{key}:#{attempt}")
+      :erlang.crc32("#{attempt}#{key}")
     end
 
     i = binary_search(continuum, hkey)
